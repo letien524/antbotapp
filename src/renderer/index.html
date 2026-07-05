@@ -48,6 +48,7 @@
   .fields.dim { opacity: .4; pointer-events: none; }
   .trhead, .trow { display: grid; grid-template-columns: 36px 150px 1fr 96px; gap: 10px; align-items: center; }
   .trhead.h2, .trow.h2 { grid-template-columns: 36px 1fr; }
+  .trhead.h3, .trow.h3 { grid-template-columns: 36px 1fr 96px; }
   .trhead { font-size: 10px; color: #8b949e; text-transform: uppercase; padding: 0 0 6px; }
   .trow { padding: 6px 0; border-top: 1px solid #1c2230; }
   .trow .tlabel { font-size: 12px; }
@@ -138,9 +139,10 @@
       <div class="sect">
         <div class="head">
           <input type="checkbox" id="g_enabled" />
-          <label for="g_enabled">② 🌿 Thu thap tai nguyen — cau hinh tung doi (uu tien 2)</label>
+          <label for="g_enabled">② 🌿 Thu thap tai nguyen — tich chon loai + level (uu tien 2)</label>
         </div>
-        <div class="trhead"><span>Bat</span><span>Doi</span><span>Loai tai nguyen</span><span>Level</span></div>
+        <div style="font-size:10px;color:#8b949e;margin-bottom:6px">Cac o trong hanh quan se lan luot gather cac loai da tich (xoay vong). Loai khong tich se bo qua.</div>
+        <div class="trhead h3"><span>Gather</span><span>Loai tai nguyen</span><span>Level</span></div>
         <div class="trows" id="g_rows"></div>
       </div>
 

@@ -125,19 +125,30 @@ async function selectTab(device, cfg, which) {
   await device.sleep(700);
 }
 
-// Chon o loai theo chi so (0-based). Dai o loai la CAROUSEL cuon ngang.
-// Reset ve dau -> vuot trai `index` lan -> tap giua. (Toi uu: it vuot hon, sleep ngan hon.)
-async function selectSlot(device, cfg, index = 0) {
+// Carousel loai (o SEARCH): 3 item, item GIUA = dang chon.
+//  - next (index tang): vuot PHAI->TRAI.  - prev (index giam): vuot TRAI->PHAI.
+// THONG MINH: biet vi tri hien tai `cur` -> di chuyen bang SO BUOC TOI THIEU (delta).
+// `cur == null` (chua biet) -> reset ve 0 (vuot trai->phai nhieu lan) roi coi la 0.
+// Tra ve vi tri moi (= index) de ben goi cap nhat bo nho.
+async function selectSlot(device, cfg, index = 0, cur = null) {
   const y = 0.719;
-  // 1) Reset ve dau (vuot trai->phai). Vuot dut khoat (280ms) de carousel bat dung khoang,
-  //    6 lan cho chac ve o 0; chi giam sleep giua cac lan.
-  for (let i = 0; i < 6; i += 1) { await device.swipePct(0.2, y, 0.85, y, 280); await device.sleep(220); }
-  await device.sleep(200);
-  // 2) Vuot trai `index` lan (moi lan tien 1 o).
-  for (let i = 0; i < index; i += 1) { await device.swipePct(0.68, y, 0.337, y, 280); await device.sleep(330); }
-  await device.sleep(150);
-  await device.tapPct(0.5, y);
-  await device.sleep(280);
+  let pos = cur;
+  if (pos == null) {
+    // Chua biet -> reset ve dau danh sach.
+    for (let i = 0; i < 6; i += 1) { await device.swipePct(0.2, y, 0.85, y, 280); await device.sleep(200); }
+    await device.sleep(150);
+    pos = 0;
+  }
+  const delta = index - pos;
+  if (delta > 0) {
+    for (let i = 0; i < delta; i += 1) { await device.swipePct(0.68, y, 0.337, y, 280); await device.sleep(320); } // next
+  } else if (delta < 0) {
+    for (let i = 0; i < -delta; i += 1) { await device.swipePct(0.337, y, 0.68, y, 280); await device.sleep(320); } // prev
+  }
+  await device.sleep(120);
+  await device.tapPct(0.5, y); // tap giua de chon
+  await device.sleep(250);
+  return index;
 }
 
 // Chinh level: ha ve MIN bang cach bam '-' du nhieu (16 lan phu het 15 muc / 7 muc lizard),
@@ -190,12 +201,14 @@ async function searchTarget(device, cfg, opts) {
       const last = device._lastSearch[tab];
       const typeChanged = !last || last.type !== type;
       if (typeChanged) {
-        await selectSlot(device, cfg, type);
+        // Vi tri hien tai = loai lan truoc (game nho lua chon). Di chuyen bang so buoc toi thieu.
+        const curPos = last ? last.type : null;
+        await selectSlot(device, cfg, type, curPos);
         await setLevel(device, cfg, plusClicks);
       } else if (last.level !== level) {
         await setLevel(device, cfg, plusClicks); // cung loai, chi doi level
       }
-      // cung loai + cung level -> game da cache, khong chon lai gi.
+      // Nho lai: loai (= vi tri carousel) + level -> lan sau tinh delta, va cache game.
       device._lastSearch[tab] = { type, level };
     }
     await pressGo(device, cfg);

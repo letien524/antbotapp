@@ -43,12 +43,14 @@ async function huntBeast(device, ctx = {}) {
     await closeAutoHunt(device);
     return { ok: false, reason: 'auto_running' };
   }
+  // Khong nhan ra setup/running ngay -> luu anh POPUP GOC de chan doan (truoc khi thao tac).
+  if (state === 'other') await device.saveDebugShot('autohunt-popup');
 
   // Dua ve man SETUP (neu ended thi Restart).
   const setup = await ensureSetup(device);
   if (setup === 'running') { await closeAutoHunt(device); return { ok: false, reason: 'auto_running' }; }
   if (setup !== 'setup') {
-    log.warn('[huntBeast] khong vao duoc man setup Auto Hunt.');
+    log.warn('[huntBeast] KHONG nhan dien duoc man Auto Hunt (template co the khong khop do phan giai may). Da luu anh: ~/.antbot/debug/autohunt-popup-*.png');
     await closeAutoHunt(device);
     return { ok: false, reason: 'no_setup' };
   }

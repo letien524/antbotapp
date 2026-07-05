@@ -1,15 +1,17 @@
 'use strict';
 
-// TASK: Thu thap tai nguyen — cau hinh THEO TUNG DOI (troop).
-// Moi doi co 1 dong: loai tai nguyen + level rieng. Lap qua tung doi:
-//   mo Search -> chon loai+level cua doi -> Go -> Gather -> chon dung doi do -> March.
-// Doi nao dang ban (nut March xam) thi bo qua. Khong co "so luong toi da".
+// TASK: Thu thap tai nguyen — cau hinh THEO TUNG LOAI tai nguyen (khong per-troop).
+// Thu tu carousel: meat, plants, wet soil, sand, diamond. Moi loai: active + level.
 //
-// Config: cfg.gather = { enabled, troops: [ {type, level, enabled}, ... ] }  (index = doi)
+// Luong:
+//  1) Check queue -> con o trong bao nhieu.
+//  2) Voi moi o trong: gan 1 loai tai nguyen (xoay vong qua cac loai ACTIVE, bo qua loai tat).
+//  3) Search loai do (carousel THONG MINH: nho vi tri, di chuyen so buoc toi thieu; game
+//     nho loai+level nen lan sau chi can di delta) -> Gather -> March troop ranh (auto-focus).
+//
+// Config: cfg.gather = { enabled, types: [ {active, level} x5 ] }  (index = vi tri carousel)
 
-const {
-  ensureWorldMap, searchTarget, deployMarch, recover,
-} = require('./common');
+const { ensureWorldMap, searchTarget, deployMarch, recover } = require('./common');
 const { levelToClicks } = require('../config');
 const { readMarchQueue } = require('../state/StateReader');
 
@@ -17,67 +19,71 @@ async function collectResources(device, ctx = {}) {
   const log = device.log;
   const cfg = (ctx && ctx.config) || {};
   const g = cfg.gather || {};
-  const rows = Array.isArray(g.troops) ? g.troops : [];
+  const types = Array.isArray(g.types) ? g.types : [];
+  // Cac loai ACTIVE theo thu tu carousel (meat -> diamond).
+  const activeIdx = types.map((t, i) => ({ t, i })).filter((x) => x.t && x.t.active !== false).map((x) => x.i);
 
-  const active = rows.filter((r) => r && r.enabled !== false).length;
-  log.info(`[collectResources] bat dau — ${active} doi bat thu thap.`);
+  if (activeIdx.length === 0) {
+    log.info('[collectResources] chua bat loai tai nguyen nao -> bo qua.');
+    return { ok: false, reason: 'no_types' };
+  }
 
   if (!(await ensureWorldMap(device, cfg))) {
     log.warn('[collectResources] khong o world map -> bo qua luot nay.');
     return { ok: false, reason: 'not_on_world_map' };
   }
 
-  // Het o hanh quan -> khong lam gi. Uu tien queue Worker da doc san (tranh doc lai).
+  // 1) Check queue: con o trong khong.
   const q = (ctx && 'queue' in ctx) ? ctx.queue : await readMarchQueue(device, cfg);
-  let freeSlots = rows.length;
-  // So troop thuc te cua may = tong o hanh quan (X/Y -> Y). Chi lay config cua tung ay doi.
-  let troopCount = rows.length;
+  let freeSlots = activeIdx.length;
   if (q) {
     log.info(`[state] hanh quan ${q.used}/${q.total} (con trong ${q.free})`);
     if (q.free <= 0) {
-      log.info('[collectResources] tat ca doi dang ban -> bo qua luot nay.');
+      log.info('[collectResources] het o hanh quan -> bo qua luot nay.');
       return { ok: false, reason: 'no_free_troop' };
     }
     freeSlots = q.free;
-    if (q.total) troopCount = Math.min(rows.length, q.total);
   }
 
+  // 2) Voi moi o trong: gan loai ke tiep (xoay vong qua cac loai active) roi di gather.
   let sent = 0;
-  for (let troopIdx = 0; troopIdx < troopCount; troopIdx += 1) {
-    if (sent >= freeSlots) break; // da dung het o trong
-    const row = rows[troopIdx];
-    if (!row || row.enabled === false) continue;
+  for (let k = 0; k < freeSlots; k += 1) {
+    if (device._gatherRot == null) device._gatherRot = -1;
+    device._gatherRot = (device._gatherRot + 1) % activeIdx.length;
+    const typeIdx = activeIdx[device._gatherRot];
+    const level = types[typeIdx].level || 1;
 
-    // 1) Tim o tai nguyen RANH (dung cache game; bo qua o bi nguoi khac khai thac -> tim cai khac).
+    // 3) Search loai nay (carousel thong minh + game cache); bo qua o bi nguoi khac khai thac.
     const gather = await searchTarget(device, cfg, {
       tab: 'resource',
-      type: row.type,
-      level: row.level,
-      plusClicks: levelToClicks('gather', row.type, row.level),
+      type: typeIdx,
+      level,
+      plusClicks: levelToClicks('gather', typeIdx, level),
       actionTemplate: 'btn_gather',
       retries: 4,
     });
     if (!gather) {
-      log.warn(`[collectResources] Doi ${troopIdx + 1}: khong tim duoc o ranh (het / bi chiem). Bo qua.`);
+      log.warn(`[collectResources] loai ${typeIdx + 1} lv${level}: khong tim duoc o ranh -> bo qua.`);
       await recover(device, 2);
       continue;
     }
     await device.tap(gather.x, gather.y);
     await device.sleep(800);
 
-    // 2) March bang troop game da focus (troop ranh).
+    // March bang troop game da focus (troop ranh).
     const marched = await deployMarch(device, cfg);
     if (marched) {
+      if (ctx.report) ctx.report(sent, { task: 'gather', type: typeIdx, level });
       sent += 1;
-      if (ctx.report) ctx.report(troopIdx, { task: 'gather', type: row.type, level: row.level });
-      log.info(`[collectResources] Doi ${troopIdx + 1} da di thu tai nguyen.`);
+      log.info(`[collectResources] da gui gather loai ${typeIdx + 1} lv${level}.`);
     } else {
-      log.info(`[collectResources] Doi ${troopIdx + 1} dang ban -> bo qua.`);
+      log.info('[collectResources] khong con troop ranh -> dung.');
       await recover(device, 2);
+      break;
     }
   }
 
-  log.info(`[collectResources] xong — ${sent} doi di thu thap.`);
+  log.info(`[collectResources] xong — ${sent} troop di gather.`);
   return { ok: sent > 0, sent };
 }
 

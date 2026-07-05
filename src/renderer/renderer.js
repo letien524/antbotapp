@@ -205,6 +205,29 @@ function readHuntTypeRows(els) {
   return els.map((e) => ({ enabled: e.enabledEl.checked }));
 }
 
+// Dung cac dong GATHER: moi loai tai nguyen 1 dong (tich | ten loai | level).
+function buildGatherTypeRows(container, typeMeta, typesConfig) {
+  container.innerHTML = '';
+  const els = [];
+  (typeMeta || []).forEach((t, i) => {
+    const rc = (typesConfig && typesConfig[i]) || { active: false, level: 1 };
+    const div = document.createElement('div');
+    div.className = 'trow h3';
+    div.innerHTML = `
+      <input type="checkbox" class="tenabled" ${rc.active !== false ? 'checked' : ''} />
+      <span class="tlabel">${t.label}</span>
+      <select class="tlevel"></select>`;
+    const levelSel = div.querySelector('.tlevel');
+    fillLevelSelect(levelSel, typeMeta, t.slot, rc.level);
+    container.appendChild(div);
+    els.push({ enabledEl: div.querySelector('.tenabled'), levelSel });
+  });
+  return els;
+}
+function readGatherTypeRows(els) {
+  return els.map((e) => ({ active: e.enabledEl.checked, level: parseInt(e.levelSel.value, 10) || 1 }));
+}
+
 function bindEnableToggle(chkId, rowsId) {
   const chk = document.getElementById(chkId);
   const rows = document.getElementById(rowsId);
@@ -219,7 +242,7 @@ let configMode = 'device'; // 'device' | 'global'
 // Do config vao form (dung chung cho device va global).
 function fillConfigForm(config) {
   document.getElementById('g_enabled').checked = !!config.gather.enabled;
-  gRowEls = buildTroopRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.troops);
+  gRowEls = buildGatherTypeRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.types);
 
   document.getElementById('h_enabled').checked = !!config.hunt.enabled;
   const hLevelSel = document.getElementById('h_level');
@@ -268,7 +291,7 @@ function readConfigForm() {
   return {
     gather: {
       enabled: document.getElementById('g_enabled').checked,
-      troops: readTroopRows(gRowEls),
+      types: readGatherTypeRows(gRowEls),
     },
     hunt: {
       enabled: document.getElementById('h_enabled').checked,

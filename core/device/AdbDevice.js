@@ -197,8 +197,19 @@ class AdbDevice {
     this._check();
     await this.getScreenSize();
     const [x, y] = this.pctToPx(xPct, yPct);
-    const one = `input tap ${Math.round(x)} ${Math.round(y)}`;
-    await run(this._args(['shell', Array(n).fill(one).join(';')]));
+    const rx = Math.round(x);
+    const ry = Math.round(y);
+    const one = `input tap ${rx} ${ry}`;
+    try {
+      // Chen 'sleep' nho GIUA cac tap (chay tren may) de game KHONG ROT tap (bam qua nhanh
+      // se mat tap -> sai level). Van chi 1 lan spawn adb -> nhanh tren Windows.
+      const cmd = Array(n).fill(one).join(' && sleep 0.05 && ');
+      await run(this._args(['shell', cmd]));
+    } catch (e) {
+      // May khong ho tro 'sleep' phan so / chuoi lenh -> tap tung cai (co sleep phia host).
+      this.log.warn(`[tapRepeat] gop lenh loi (${e.message}) -> tap tung cai.`);
+      for (let i = 0; i < n; i += 1) { this._check(); await this.tap(rx, ry); await this.sleep(55); }
+    }
   }
 
   async swipe(x1, y1, x2, y2, durationMs = 300) {
@@ -216,6 +227,25 @@ class AdbDevice {
     const [x1, y1] = this.pctToPx(x1p, y1p);
     const [x2, y2] = this.pctToPx(x2p, y2p);
     await this.swipe(x1, y1, x2, y2, durationMs);
+  }
+
+  // Luu anh man hinh hien tai ra ~/.antbot/debug/ de chan doan (gui cho dev xem).
+  async saveDebugShot(label = 'debug') {
+    try {
+      const os = require('os');
+      const fs = require('fs');
+      const path = require('path');
+      const dir = path.join(os.homedir(), '.antbot', 'debug');
+      fs.mkdirSync(dir, { recursive: true });
+      const safe = String(this.serial).replace(/[^a-z0-9]/gi, '_');
+      const p = path.join(dir, `${label}-${safe}.png`);
+      fs.writeFileSync(p, await this.capture());
+      this.log.info(`[debug] Da luu anh man hinh de chan doan: ${p}`);
+      return p;
+    } catch (e) {
+      this.log.warn(`[debug] luu anh that bai: ${e.message}`);
+      return null;
+    }
   }
 
   // Bam phim he thong (BACK=4, HOME=3...).

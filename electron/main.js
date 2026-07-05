@@ -88,7 +88,8 @@ function stopWorker(serial) {
 }
 
 // Dung roi cho child thoat han (dung khi restart de doi cu-moi khong tranh device).
-function stopWorkerAndWait(serial) {
+// cleanup=true -> child dung Auto Hunt trong game truoc khi thoat (can nhieu thoi gian hon).
+function stopWorkerAndWait(serial, cleanup = false) {
   return new Promise((resolve) => {
     const child = procs.get(serial);
     if (!child) return resolve();
@@ -97,14 +98,16 @@ function stopWorkerAndWait(serial) {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
     child.once('exit', finish);
-    try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) {} finish(); }
-    setTimeout(() => { try { child.kill(); } catch (e) {} finish(); }, 4000);
+    try { child.send({ type: 'stop', cleanup }); } catch (e) { try { child.kill(); } catch (e2) {} finish(); }
+    setTimeout(() => { try { child.kill(); } catch (e) {} finish(); }, cleanup ? 12000 : 4000);
   });
 }
 
-async function restartIfRunning(serial) {
+// Restart worker de ap dung config MOI. cleanup=true (khi cau hinh HUNT doi) -> dung Auto Hunt
+// cu trong game truoc, de child moi bat lai hunt theo config moi (khong ke thua hunt cu).
+async function restartIfRunning(serial, { cleanup = false } = {}) {
   if (!procs.has(serial)) return false;
-  await stopWorkerAndWait(serial);
+  await stopWorkerAndWait(serial, cleanup);
   if (tasksFromConfig(accountForSerial(serial).config).length > 0) startWorker(serial);
   return true;
 }
@@ -183,16 +186,13 @@ ipcMain.handle('devices:troopTables', async () => {
     const queue = (st && st.lastQueue) || null;
     const status = (st && st.troopStatus) || {};
     const allIdle = queue && queue.used === 0; // queue 0 -> moi doi deu ranh
-    const troops = TROOPS.map((t) => {
-      const g = (cfg.gather.troops && cfg.gather.troops[t.index]) || {};
-      return {
-        idx: t.index,
-        name: t.label,
-        gather: (cfg.gather.enabled && g.enabled !== false) ? { type: g.type, level: g.level } : null,
-        hunt: null, // Auto Hunt la global (khong theo tung troop)
-        status: allIdle ? null : (status[t.index] || null),
-      };
-    });
+    const troops = TROOPS.map((t) => ({
+      idx: t.index,
+      name: t.label,
+      gather: null, // gather gio theo LOAI tai nguyen (global), khong per-troop
+      hunt: null, // Auto Hunt cung global
+      status: allIdle ? null : (status[t.index] || null),
+    }));
     out.push({
       serial: dev.serial, name: dev.name,
       online: online.has(dev.serial), running: procs.has(dev.serial), queue, troops,
@@ -243,11 +243,17 @@ ipcMain.handle('config:meta', async () => ({
 ipcMain.handle('config:getGlobal', async () => ({ config: getGlobalConfig() }));
 
 ipcMain.handle('config:saveGlobal', async (_e, { config, applyToAll }) => {
+  const beforeHunt = JSON.stringify(getGlobalConfig().hunt); // hunt cu (de biet co doi khong)
   saveGlobalConfig(config, { applyToAll });
+  const huntChanged = JSON.stringify(getGlobalConfig().hunt) !== beforeHunt;
   // Restart cac worker dang dung cau hinh chung de ap dung ngay (applyToAll -> tat ca).
+  // Neu hunt doi (hoac applyToAll ep may ve global) -> dung Auto Hunt cu de ap dung ngay.
   let restarted = 0;
   for (const d of listDevices()) {
-    if (!d.useOwnConfig && procs.has(d.serial)) { await restartIfRunning(d.serial); restarted += 1; }
+    if ((!d.useOwnConfig || applyToAll) && procs.has(d.serial)) {
+      await restartIfRunning(d.serial, { cleanup: huntChanged || !!applyToAll });
+      restarted += 1;
+    }
   }
   return { saved: true, restarted, applyToAll: !!applyToAll };
 });
@@ -264,15 +270,18 @@ ipcMain.handle('config:get', async (_e, serial) => {
 });
 
 ipcMain.handle('config:save', async (_e, { serial, config, useOwnConfig, name }) => {
+  const beforeHunt = JSON.stringify(effectiveConfig(serial).hunt); // hunt cu dang chay
   saveDeviceConfig(serial, { config, useOwnConfig, name });
-  const restarted = await restartIfRunning(serial);
+  const huntChanged = JSON.stringify(effectiveConfig(serial).hunt) !== beforeHunt;
+  // Hunt doi -> dung Auto Hunt cu trong game de child moi bat lai theo config moi.
+  const restarted = await restartIfRunning(serial, { cleanup: huntChanged });
   return { saved: true, restarted };
 });
 
 // ---- Import / Export CSV ----
 ipcMain.handle('config:importCsv', async (_e, text) => {
   const serials = importCsv(text);
-  for (const s of serials) await restartIfRunning(s);
+  for (const s of serials) await restartIfRunning(s, { cleanup: true });
   return { imported: serials.length, serials };
 });
 
@@ -283,7 +292,7 @@ ipcMain.handle('settings:export', async () => ({ json: exportSettings(), path: C
 
 ipcMain.handle('settings:import', async (_e, text) => {
   const n = importSettings(text);
-  for (const s of [...procs.keys()]) await restartIfRunning(s);
+  for (const s of [...procs.keys()]) await restartIfRunning(s, { cleanup: true });
   return { imported: n };
 });
 

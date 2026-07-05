@@ -27,12 +27,20 @@ const AH = {
 
 // Trang thai popup: 'running' (dang san) | 'setup' (cau hinh) | 'other' (ended/khac).
 // Retry vi sau khi Start/Restart co popup thong bao + animation de len (can cho render xong).
+// Doc diem so THUC (threshold thap) roi tu quyet dinh -> log ro de chan doan may khac do phan giai.
 async function getState(device, { retries = 3 } = {}) {
+  let lastRun = null;
+  let lastSet = null;
   for (let i = 0; i <= retries; i += 1) {
-    if (await locate(device, 'ah_hunting', { threshold: 0.75 })) return 'running';
-    if (await locate(device, 'ah_target', { threshold: 0.78 })) return 'setup';
+    const runHit = await locate(device, 'ah_hunting', { threshold: 0.4 });
+    lastRun = runHit ? runHit.score : null;
+    if (runHit && runHit.score >= 0.7) return 'running';
+    const setHit = await locate(device, 'ah_target', { threshold: 0.4 });
+    lastSet = setHit ? setHit.score : null;
+    if (setHit && setHit.score >= 0.72) return 'setup';
     if (i < retries) await device.sleep(700);
   }
+  device.log.info(`[autohunt] khong ro trang thai popup (ah_hunting=${lastRun != null ? lastRun.toFixed(2) : 'x'}, ah_target=${lastSet != null ? lastSet.toFixed(2) : 'x'}) -> coi la 'other'. Neu ca 2 deu thap: popup chua mo dung / template khong khop do phan giai.`);
   return 'other';
 }
 
@@ -40,7 +48,9 @@ async function getState(device, { retries = 3 } = {}) {
 async function openAutoHunt(device) {
   await device.tapPct(AH.bugIcon[0], AH.bugIcon[1]);
   await device.sleep(1600);
-  return getState(device);
+  const st = await getState(device);
+  device.log.info(`[autohunt] mo popup (tap icon con bo) -> trang thai: ${st}`);
+  return st;
 }
 
 async function closeAutoHunt(device) {

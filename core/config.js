@@ -41,11 +41,12 @@ const HUNT_TYPES = [
   { slot: 4, label: 'Honeydew (o 5)', levels: LV_1_15 },
   { slot: 5, label: 'Lizard (o 6)', levels: LV_LIZARD },
 ];
+// Thu tu carousel gather: meat, plants, wet soil, sand, diamond (slot = vi tri 0-4).
 const RESOURCE_TYPES = [
-  { slot: 0, label: 'Woodlouse Colony (o 1)', levels: LV_1_15 },
-  { slot: 1, label: 'Bush (o 2)', levels: LV_1_15 },
-  { slot: 2, label: 'Wet Soil Pile (o 3)', levels: LV_1_15 },
-  { slot: 3, label: 'Sand Pile (o 4)', levels: LV_1_15 },
+  { slot: 0, label: 'Meat - Woodlouse (o 1)', levels: LV_1_15 },
+  { slot: 1, label: 'Plants - Bush (o 2)', levels: LV_1_15 },
+  { slot: 2, label: 'Wet Soil (o 3)', levels: LV_1_15 },
+  { slot: 3, label: 'Sand (o 4)', levels: LV_1_15 },
   { slot: 4, label: 'Diamond (o 5)', levels: LV_1_15 },
 ];
 
@@ -206,14 +207,34 @@ function defaultHuntTypes() {
   return HUNT_AUTO_TYPES.map((t) => ({ enabled: t.index < 2 }));
 }
 
+// Gather theo TUNG LOAI tai nguyen (meat, plants, wet soil, sand, diamond).
+// Moi loai: active (bot co gather khong) + level. Mac dinh bat loai dau (meat).
+function defaultGatherTypes() {
+  return RESOURCE_TYPES.map((t) => ({ active: t.slot < 1, level: 1 }));
+}
+
 function defaultConfig() {
   return {
-    gather: { enabled: true, troops: defaultTroopRows() },
+    gather: { enabled: true, types: defaultGatherTypes() },
     // Auto Hunt: tich chon loai + 1 level CHUNG cho tat ca (game tu cap neu vuot max).
     hunt: { enabled: true, level: 1, types: defaultHuntTypes() },
     pollSec: 60, // chu ky kiem tra doi ranh de gui luot moi
     world: {},
   };
+}
+
+// Chuan hoa danh sach loai gather (du 5 loai, moi loai {active, level}).
+function normalizeGatherTypes(types) {
+  const out = [];
+  for (let i = 0; i < RESOURCE_TYPES.length; i += 1) {
+    const has = Array.isArray(types) && types[i];
+    const r = has || {};
+    out.push({
+      active: has ? (r.active !== false && r.enabled !== false) : (i < 1),
+      level: Number(r.level) > 0 ? Number(r.level) : 1,
+    });
+  }
+  return out;
 }
 
 // Chuan hoa danh sach loai auto hunt (du 5 loai, moi loai chi {enabled}).
@@ -250,7 +271,7 @@ function normalizeConfig(cfg = {}) {
   return {
     gather: {
       enabled: g.enabled !== false,
-      troops: normalizeTroopRows(g.troops),
+      types: normalizeGatherTypes(g.types),
     },
     hunt: {
       enabled: h.enabled !== false,
