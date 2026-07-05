@@ -16,7 +16,12 @@ function run(args, { binary = false, timeout = 15000 } = {}) {
     execFile(
       'adb',
       args,
-      { encoding: binary ? 'buffer' : 'utf8', timeout, maxBuffer: 64 * 1024 * 1024 },
+      {
+        encoding: binary ? 'buffer' : 'utf8',
+        timeout,
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true, // Windows: khong tao/nhap nhay cua so console moi lan spawn
+      },
       (err, stdout, stderr) => {
         if (err) return reject(new Error(`adb ${args.join(' ')} failed: ${stderr || err.message}`));
         resolve(stdout);
@@ -29,25 +34,48 @@ class AdbDevice {
   constructor(serial) {
     this.serial = serial;
     this.log = makeLogger(`dev:${serial}`);
-    this.size = null; // { width, height } - cache do phan giai device
-    this.gameArea = null; // { x, y, width, height } - vung GAME thuc (bo vien den tren/duoi)
+    this.size = null; // { width, height } - cache do phan giai device (theo wm size = he TAP)
+    // Vung GAME thuc luu dang PHAN TRAM chieu cao (vien den chi o TREN/DUOI, x=0 w=1).
+    // Luu % de dung dung cho CA HAI he toa do (thuong bang nhau, mot so may khac nhau):
+    //   - He TAP (wm size): input tap dung he nay -> area().
+    //   - He ANH chup (screencap px): crop OCR / so khop template -> imageArea(img).
+    this.gameFrac = null; // { yFrac, hFrac }
     this.cancelToken = null; // Worker gan token; thao tac se huy ngay khi token.cancel().
   }
 
-  // Vung game hien tai (mac dinh = full man hinh neu chua detect).
+  // Vung game theo HE TOA DO TAP (wm size). Dung cho pctToPx (tap) va templateScale.
   area() {
-    if (this.gameArea) return this.gameArea;
     const s = this.size || { width: 0, height: 0 };
-    return { x: 0, y: 0, width: s.width, height: s.height };
+    const f = this.gameFrac || { yFrac: 0, hFrac: 1 };
+    return {
+      x: 0,
+      y: Math.round(f.yFrac * s.height),
+      width: s.width,
+      height: Math.round(f.hFrac * s.height),
+    };
   }
 
-  // Doi toa do % (theo vung GAME) -> pixel tuyet doi tren man hinh.
+  // Vung game theo PIXEL cua 1 ANH chup cu the. Dung cho crop OCR / so khop mau.
+  // (Anh chup co the khac do phan giai wm size -> phai tinh theo kich thuoc anh.)
+  imageArea(img) {
+    const W = img.bitmap.width;
+    const H = img.bitmap.height;
+    const f = this.gameFrac || { yFrac: 0, hFrac: 1 };
+    return {
+      x: 0,
+      y: Math.round(f.yFrac * H),
+      width: W,
+      height: Math.round(f.hFrac * H),
+    };
+  }
+
+  // Doi toa do % (theo vung GAME) -> pixel tuyet doi he TAP (wm size).
   pctToPx(xPct, yPct) {
     const a = this.area();
     return [a.x + xPct * a.width, a.y + yPct * a.height];
   }
 
-  // Doi 1 vung % (theo game) -> [x,y,w,h] pixel tuyet doi.
+  // Doi 1 vung % (theo game) -> [x,y,w,h] he TAP (wm size).
   regionToPx(region) {
     const a = this.area();
     return [
@@ -59,33 +87,39 @@ class AdbDevice {
   // Detect vung GAME thuc: mot so may co VIEN DEN tren/duoi (game khong full man hinh).
   // Quet cac hang den o tren/duoi de tim vung game o giua. Game rong = rong man hinh.
   async detectGameArea() {
-    const { width, height } = await this.getScreenSize();
-    let ga = { x: 0, y: 0, width, height };
+    await this.getScreenSize();
+    let yFrac = 0;
+    let hFrac = 1;
     try {
       const img = await Jimp.read(await this.capture());
       const W = img.bitmap.width;
       const H = img.bitmap.height;
       const step = Math.max(1, Math.floor(W / 40));
+      // 1 hang la "vien den" neu >=97% diem gan nhu den (chong nham voi canh game toi).
       const rowIsBlack = (y) => {
         let dark = 0; let n = 0;
         for (let x = 0; x < W; x += step) {
           n += 1;
           const { r, g, b } = Jimp.intToRGBA(img.getPixelColor(x, y));
-          if (r < 16 && g < 16 && b < 16) dark += 1;
+          if (r < 20 && g < 20 && b < 20) dark += 1;
         }
         return dark / n >= 0.97;
       };
+      // Quet vien den tu tren xuong / tu duoi len (toi da 40% moi ben).
       let top = 0;
-      while (top < H * 0.25 && rowIsBlack(top)) top += 1;
+      while (top < H * 0.4 && rowIsBlack(top)) top += 1;
       let bottom = H - 1;
-      while (bottom > H * 0.75 && rowIsBlack(bottom)) bottom -= 1;
+      while (bottom > H * 0.6 && rowIsBlack(bottom)) bottom -= 1;
       if (top > 2 || bottom < H - 3) {
-        ga = { x: 0, y: top, width: W, height: bottom - top + 1 };
-        this.log.info(`[gameArea] vien den phat hien -> game o y=${top}..${bottom} (cao ${ga.height}/${H}).`);
+        yFrac = top / H;
+        hFrac = (bottom - top + 1) / H;
+        this.log.info(`[gameArea] vien den: game chiem ${(hFrac * 100).toFixed(1)}% chieu cao (tu ${(yFrac * 100).toFixed(1)}% den ${((yFrac + hFrac) * 100).toFixed(1)}%).`);
+      } else {
+        this.log.info('[gameArea] khong co vien den -> game full man hinh.');
       }
-    } catch (e) { /* loi -> dung full man hinh */ }
-    this.gameArea = ga;
-    return ga;
+    } catch (e) { /* loi -> dung full man hinh (yFrac=0, hFrac=1) */ }
+    this.gameFrac = { yFrac, hFrac };
+    return this.area();
   }
 
   _args(rest) {
@@ -115,7 +149,7 @@ class AdbDevice {
   // Doc LAI do phan giai + detect vung game (xoa cache) — goi khi bat dau chay bot.
   async refreshSize() {
     this.size = null;
-    this.gameArea = null;
+    this.gameFrac = null;
     await this.getScreenSize();
     await this.detectGameArea();
     return this.size;
@@ -152,6 +186,19 @@ class AdbDevice {
     await this.getScreenSize();
     const [x, y] = this.pctToPx(xPct, yPct);
     await this.tap(x, y);
+  }
+
+  // Bam CUNG 1 diem (theo %) `count` lan trong 1 LENH adb duy nhat (chuoi 'input tap' noi
+  // bang ';'). Giam manh so lan spawn process -> nhanh hon nhieu tren Windows.
+  // `input` tren may co do tre san (~30-50ms) nen cac tap van cach nhau du de game nhan.
+  async tapRepeat(xPct, yPct, count) {
+    const n = Math.max(0, parseInt(count, 10) || 0);
+    if (n === 0) return;
+    this._check();
+    await this.getScreenSize();
+    const [x, y] = this.pctToPx(xPct, yPct);
+    const one = `input tap ${Math.round(x)} ${Math.round(y)}`;
+    await run(this._args(['shell', Array(n).fill(one).join(';')]));
   }
 
   async swipe(x1, y1, x2, y2, durationMs = 300) {

@@ -69,11 +69,11 @@ async function selectTarget(device, index) {
   for (let i = 0; i < index; i += 1) { await device.tapPct(AH.carRight[0], AH.carRight[1]); await device.sleep(280); }
 }
 
-// Set level target: ha ve min (bam '-' nhieu) roi '+' (level-1).
+// Set level target: ha ve min (bam '-' nhieu) roi '+' (level-1). Game tu cap neu vuot max.
 async function setTargetLevel(device, level) {
   const clicks = Math.max(0, (parseInt(level, 10) || 1) - 1);
-  for (let i = 0; i < 16; i += 1) { await device.tapPct(AH.lvlMinus[0], AH.lvlMinus[1]); await device.sleep(45); }
-  for (let i = 0; i < clicks; i += 1) { await device.tapPct(AH.lvlPlus[0], AH.lvlPlus[1]); await device.sleep(60); }
+  await device.tapRepeat(AH.lvlMinus[0], AH.lvlMinus[1], 16); // 1 lenh adb thay vi 16
+  await device.tapRepeat(AH.lvlPlus[0], AH.lvlPlus[1], clicks);
 }
 
 // Doc Hunting Times hien tai (khi Select All -> hien so max co the san).
@@ -81,19 +81,23 @@ async function readTimes(device) {
   return readNumberRegion(device, AH.timesInput);
 }
 
-// Set Hunting Times = n. Uu tien doc so hien tai roi tap +/- theo delta cho nhanh.
+// Set Hunting Times = n. Tap gop nhanh nhung co the SOT vai tap -> doc lai va sua den khi
+// dung (toi da 5 lan). Vua nhanh (it spawn) vua chinh xac.
 async function setTimes(device, n) {
   const target = Math.max(1, parseInt(n, 10) || 1);
-  const cur = await readTimes(device);
-  if (cur == null) {
-    // Khong doc duoc -> reset ve min roi + (n-1).
-    for (let i = 0; i < 40; i += 1) { await device.tapPct(AH.timesMinus[0], AH.timesMinus[1]); await device.sleep(35); }
-    for (let i = 0; i < target - 1; i += 1) { await device.tapPct(AH.timesPlus[0], AH.timesPlus[1]); await device.sleep(40); }
-    return;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const cur = await readTimes(device);
+    if (cur == null) {
+      // Khong doc duoc -> reset ve min roi + (n-1) (best effort).
+      await device.tapRepeat(AH.timesMinus[0], AH.timesMinus[1], 40);
+      await device.tapRepeat(AH.timesPlus[0], AH.timesPlus[1], target - 1);
+      return;
+    }
+    const delta = target - cur;
+    if (delta === 0) return; // dung roi
+    const [bx, by] = delta > 0 ? AH.timesPlus : AH.timesMinus;
+    await device.tapRepeat(bx, by, Math.abs(delta));
   }
-  const delta = target - cur;
-  const [bx, by] = delta >= 0 ? AH.timesPlus : AH.timesMinus;
-  for (let i = 0; i < Math.abs(delta); i += 1) { await device.tapPct(bx, by); await device.sleep(55); }
 }
 
 async function startAutoHunt(device) {

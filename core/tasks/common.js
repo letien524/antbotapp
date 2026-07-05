@@ -146,8 +146,8 @@ async function setLevel(device, cfg, plusClicks = 0) {
   const clicks = Math.max(0, parseInt(plusClicks, 10) || 0);
   const [mx, my] = coords(cfg, 'levelMinus');
   const [px, py] = coords(cfg, 'levelPlus');
-  for (let i = 0; i < 16; i += 1) { await device.tapPct(mx, my); await device.sleep(45); }
-  for (let i = 0; i < clicks; i += 1) { await device.tapPct(px, py); await device.sleep(60); }
+  await device.tapRepeat(mx, my, 16); // ve min — 1 lenh adb thay vi 16 lan spawn
+  await device.tapRepeat(px, py, clicks);
 }
 
 // Bam Go -> ban do bay toi muc tieu gan nhat.

@@ -51,9 +51,9 @@ function regionPx(region, area) {
     Math.round(region.h * area.height),
   ];
 }
-// Vung game cua device (bo vien den) neu co, khong thi full anh.
+// Vung game (bo vien den) theo PIXEL cua anh chup nay. Khong co -> full anh.
 function areaOf(device, img) {
-  if (device && device.gameArea) return device.gameArea;
+  if (device && typeof device.imageArea === 'function') return device.imageArea(img);
   return { x: 0, y: 0, width: img.bitmap.width, height: img.bitmap.height };
 }
 function fullArea(img) {
