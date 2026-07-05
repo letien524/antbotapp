@@ -25,8 +25,8 @@ const STAMINA_REGIONS = [
   { x: 0.567, y: 0.610, w: 0.119, h: 0.027 },
 ];
 
-// Pool nhieu OCR worker de doc song song (nhieu may cung doc queue khong bi xep hang 1 core).
-const POOL_SIZE = 3;
+// Moi may la 1 process rieng -> 1 OCR worker/process la du (khong co canh tranh trong process).
+const POOL_SIZE = 1;
 let pool = null;
 let rr = 0;
 async function getWorker() {

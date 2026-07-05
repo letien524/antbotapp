@@ -6,11 +6,11 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const { fork } = require('child_process');
 const { DeviceManager } = require('../core/device/DeviceManager');
-const { Worker } = require('../core/scheduler/Worker');
 const { logEmitter } = require('../core/logger');
 const {
-  accountForSerial, tasksFromConfig, defaultConfig,
+  accountForSerial, tasksFromConfig,
   HUNT_TYPES, RESOURCE_TYPES, TROOPS, CSV_HEADER,
   listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, saveDeviceConfig,
   getGlobalConfig, saveGlobalConfig, effectiveConfig, normalizeConfig,
@@ -19,7 +19,11 @@ const {
 const { readMarchQueue } = require('../core/state/StateReader');
 
 const dm = new DeviceManager();
-const workers = new Map(); // serial -> Worker
+const DEVICE_WORKER = path.join(__dirname, '..', 'core', 'deviceWorker.js');
+
+// Moi may = 1 CHILD PROCESS rieng (cach ly CPU khoi UI).
+const procs = new Map();       // serial -> child process
+const statusStore = new Map(); // serial -> { troopStatus, lastQueue, at } (child bao ve)
 let win = null;
 
 function createWindow() {
@@ -45,32 +49,62 @@ async function onlineSerials() {
   return new Set(list.map((d) => d.serial));
 }
 
-// Khoi dong worker cho 1 serial (config thuc thi = rieng hoac chung).
-async function startWorker(serial) {
-  let d = dm.get(serial);
-  if (!d) { await dm.refresh(); d = dm.get(serial); }
-  if (!d) throw new Error('Device chua ket noi (offline)');
-  // Lay lai thong so man hinh moi bat dau (phong khi doi emulator/do phan giai).
-  const size = await d.refreshSize().catch(() => null);
-  if (size) d.log.info(`Bat dau — kich thuoc man hinh ${size.width}x${size.height}.`);
-  const account = accountForSerial(serial);
-  const tasks = tasksFromConfig(account.config);
+// Khoi dong 1 CHILD PROCESS cho serial. Child tu doc config + dieu khien may.
+function startWorker(serial) {
+  if (procs.has(serial)) return { running: true };
+  const tasks = tasksFromConfig(accountForSerial(serial).config);
   if (tasks.length === 0) throw new Error('Chua bat task nao trong cau hinh');
-  const w = new Worker(d, { account });
-  workers.set(serial, w);
-  await w.start();
+
+  const child = fork(DEVICE_WORKER, [serial], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, // chay nhu Node thuan
+  });
+  procs.set(serial, child);
+
+  child.on('message', (msg) => {
+    if (!msg) return;
+    if (msg.type === 'log') {
+      if (win && !win.isDestroyed()) win.webContents.send('log', msg.entry);
+    } else if (msg.type === 'status') {
+      statusStore.set(serial, { troopStatus: msg.troopStatus || {}, lastQueue: msg.lastQueue || null, at: Date.now() });
+    }
+  });
+  child.on('exit', () => { if (procs.get(serial) === child) procs.delete(serial); statusStore.delete(serial); });
+  child.on('error', (e) => {
+    if (win && !win.isDestroyed()) win.webContents.send('log', { level: 'ERROR', scope: `proc:${serial}`, line: `Child loi: ${e.message}` });
+  });
   return { running: true, tasks };
 }
 
+// Dung child: gui 'stop' (child huy task ngay), kill neu khong thoat sau 4s.
 function stopWorker(serial) {
-  const w = workers.get(serial);
-  if (w) { w.stop(); workers.delete(serial); }
+  const child = procs.get(serial);
+  if (!child) return;
+  procs.delete(serial);
+  statusStore.delete(serial);
+  try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
+  const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 4000);
+  child.once('exit', () => clearTimeout(t));
+}
+
+// Dung roi cho child thoat han (dung khi restart de doi cu-moi khong tranh device).
+function stopWorkerAndWait(serial) {
+  return new Promise((resolve) => {
+    const child = procs.get(serial);
+    if (!child) return resolve();
+    procs.delete(serial);
+    statusStore.delete(serial);
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    child.once('exit', finish);
+    try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) {} finish(); }
+    setTimeout(() => { try { child.kill(); } catch (e) {} finish(); }, 4000);
+  });
 }
 
 async function restartIfRunning(serial) {
-  if (!workers.has(serial)) return false;
-  stopWorker(serial);
-  if (tasksFromConfig(accountForSerial(serial).config).length > 0) await startWorker(serial);
+  if (!procs.has(serial)) return false;
+  await stopWorkerAndWait(serial);
+  if (tasksFromConfig(accountForSerial(serial).config).length > 0) startWorker(serial);
   return true;
 }
 
@@ -89,7 +123,7 @@ ipcMain.handle('devices:list', async () => {
       name: d.name,
       useOwnConfig: d.useOwnConfig,
       online: online.has(d.serial),
-      running: workers.has(d.serial),
+      running: procs.has(d.serial),
       size,
     });
   }
@@ -144,16 +178,9 @@ ipcMain.handle('devices:troopTables', async () => {
   const out = [];
   for (const dev of listDevices()) {
     const cfg = effectiveConfig(dev.serial);
-    const d = dm.get(dev.serial);
-    const w = workers.get(dev.serial);
-    // May dang chay -> dung queue worker da doc (KHONG OCR lai). May khong chay -> doc nhe 1 lan.
-    let queue = null;
-    if (w && w.lastQueue) {
-      queue = w.lastQueue;
-    } else if (!w && online.has(dev.serial) && d) {
-      try { queue = await readMarchQueue(d, cfg); } catch (e) { queue = null; }
-    }
-    const status = (w && w.troopStatus) || {};
+    const st = statusStore.get(dev.serial); // child bao ve — main KHONG tu OCR (giu main nhe).
+    const queue = (st && st.lastQueue) || null;
+    const status = (st && st.troopStatus) || {};
     const allIdle = queue && queue.used === 0; // queue 0 -> moi doi deu ranh
     const troops = TROOPS.map((t) => {
       const g = cfg.gather.troops[t.index] || {};
@@ -168,7 +195,7 @@ ipcMain.handle('devices:troopTables', async () => {
     });
     out.push({
       serial: dev.serial, name: dev.name,
-      online: online.has(dev.serial), running: !!w, queue, troops,
+      online: online.has(dev.serial), running: procs.has(dev.serial), queue, troops,
     });
   }
   return out;
@@ -176,7 +203,7 @@ ipcMain.handle('devices:troopTables', async () => {
 
 // ---- Chay / dung worker ----
 ipcMain.handle('worker:start', async (_e, serial) => {
-  if (workers.has(serial)) return { running: true };
+  if (procs.has(serial)) return { running: true };
   return startWorker(serial);
 });
 
@@ -190,16 +217,16 @@ ipcMain.handle('workers:startAll', async () => {
   const devs = listDevices();
   let started = 0;
   for (const d of devs) {
-    if (!online.has(d.serial) || workers.has(d.serial)) continue;
-    try { await startWorker(d.serial); started += 1; } catch (e) { /* bo qua neu khong co task */ }
-    // Stagger: cach nhau ~1.5s de cac worker khong dong loat nang cung luc.
-    await new Promise((r) => setTimeout(r, 1500));
+    if (!online.has(d.serial) || procs.has(d.serial)) continue;
+    try { startWorker(d.serial); started += 1; } catch (e) { /* bo qua neu khong co task */ }
+    // Stagger: cach nhau ~1.2s de cac child khong dong loat khoi tao nang cung luc.
+    await new Promise((r) => setTimeout(r, 1200));
   }
   return { started, total: devs.length };
 });
 
 ipcMain.handle('workers:stopAll', async () => {
-  const serials = [...workers.keys()];
+  const serials = [...procs.keys()];
   for (const s of serials) stopWorker(s);
   return { stopped: serials.length };
 });
@@ -219,7 +246,7 @@ ipcMain.handle('config:saveGlobal', async (_e, { config, applyToAll }) => {
   // Restart cac worker dang dung cau hinh chung de ap dung ngay (applyToAll -> tat ca).
   let restarted = 0;
   for (const d of listDevices()) {
-    if (!d.useOwnConfig && workers.has(d.serial)) { await restartIfRunning(d.serial); restarted += 1; }
+    if (!d.useOwnConfig && procs.has(d.serial)) { await restartIfRunning(d.serial); restarted += 1; }
   }
   return { saved: true, restarted, applyToAll: !!applyToAll };
 });
@@ -255,16 +282,27 @@ ipcMain.handle('settings:export', async () => ({ json: exportSettings(), path: C
 
 ipcMain.handle('settings:import', async (_e, text) => {
   const n = importSettings(text);
-  for (const s of [...workers.keys()]) await restartIfRunning(s);
+  for (const s of [...procs.keys()]) await restartIfRunning(s);
   return { imported: n };
 });
 
 ipcMain.handle('settings:path', async () => ({ path: CONFIG_PATH }));
 
+// Dung het child khi thoat app.
+function killAllProcs() {
+  for (const [serial, child] of procs) {
+    try { child.send({ type: 'stop' }); } catch (e) { /* ignore */ }
+    try { child.kill(); } catch (e) { /* ignore */ }
+  }
+  procs.clear();
+}
+
 app.whenReady().then(createWindow);
 
+app.on('before-quit', killAllProcs);
+
 app.on('window-all-closed', () => {
-  for (const w of workers.values()) w.stop();
+  killAllProcs();
   if (process.platform !== 'darwin') app.quit();
 });
 
