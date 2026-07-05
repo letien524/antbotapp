@@ -43,15 +43,23 @@ function meanStd(data) {
  * Tim template trong screen.
  * @param {Buffer} screenPng  PNG buffer man hinh (tu device.capture()).
  * @param {Buffer} templatePng PNG buffer anh mau.
- * @param {object} opts { scale=0.5, threshold=0.7, step=1 }
+ * @param {object} opts { scale=0.5, threshold=0.7, step=1, templateScale=1 }
+ *   templateScale: ti le resize template theo do phan giai may hien tai (khop moi man hinh).
  * @returns {Promise<null | {xPct,yPct,x,y,score,width,height}>}
  *   Toa do tra ve theo do phan giai GOC cua screen (da bu lai scale).
  */
 async function findTemplate(screenPng, templatePng, opts = {}) {
-  const { scale = 0.5, threshold = 0.7, step = 1 } = opts;
+  const { scale = 0.5, threshold = 0.7, step = 1, templateScale = 1 } = opts;
 
   const screenImg = await Jimp.read(screenPng);
-  const tplImg = await Jimp.read(templatePng);
+  let tplImg = await Jimp.read(templatePng);
+
+  // Scale template theo do phan giai man hinh (template cat o 540 -> khop may do phan giai khac).
+  if (templateScale && Math.abs(templateScale - 1) > 0.02) {
+    const nw = Math.max(1, Math.round(tplImg.bitmap.width * templateScale));
+    const nh = Math.max(1, Math.round(tplImg.bitmap.height * templateScale));
+    tplImg = tplImg.resize(nw, nh);
+  }
 
   const origW = screenImg.bitmap.width;
   const origH = screenImg.bitmap.height;
