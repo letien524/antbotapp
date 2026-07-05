@@ -78,6 +78,8 @@ async function findTemplate(screenPng, templatePng, opts = {}) {
   const maxX = S.w - T.w;
 
   for (let ty = 0; ty <= maxY; ty += step) {
+    // Nhuong event loop dinh ky de UI/IPC khong bi freeze khi nhieu may cung match.
+    if ((ty & 15) === 0) await new Promise((r) => setImmediate(r));
     for (let tx = 0; tx <= maxX; tx += step) {
       // Mean cua vung screen dang xet.
       let sum = 0;

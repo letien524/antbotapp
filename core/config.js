@@ -10,8 +10,17 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const CONFIG_PATH = path.join(__dirname, '..', 'config', 'accounts.json');
+// Config luu o THU MUC NGUOI DUNG (~/.antbot) — NGOAI project — de tai/cap nhat code
+// khong lam mat settings. File cu trong project se duoc di cu sang lan dau.
+const CONFIG_DIR = path.join(os.homedir(), '.antbot');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'accounts.json');
+const LEGACY_PATH = path.join(__dirname, '..', 'config', 'accounts.json');
+
+function ensureConfigDir() {
+  try { fs.mkdirSync(CONFIG_DIR, { recursive: true }); } catch (e) { /* da ton tai */ }
+}
 
 // Tao mang level [from..to] buoc `step`.
 function range(from, to, step) {
@@ -64,6 +73,10 @@ function levelToClicks(kind, slot, level) {
 
 // ---- Store: { global: <config chung>, devices: [{serial,name,useOwnConfig,config}] } ----
 function loadStore() {
+  // Di cu lan dau: chua co file o ~/.antbot nhung co file cu trong project -> copy sang.
+  if (!fs.existsSync(CONFIG_PATH) && fs.existsSync(LEGACY_PATH)) {
+    try { ensureConfigDir(); fs.copyFileSync(LEGACY_PATH, CONFIG_PATH); } catch (e) { /* bo qua */ }
+  }
   let raw;
   try { raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch (e) { raw = {}; }
   // Migrate tu dinh dang cu {accounts:[...]} -> {global, devices}.
@@ -81,16 +94,42 @@ function loadStore() {
 }
 
 function saveStore(store) {
+  ensureConfigDir();
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(store, null, 2));
+}
+
+// Export TOAN BO settings (global + devices) ra chuoi JSON de sao luu / chuyen may.
+function exportSettings() {
+  return JSON.stringify(loadStore(), null, 2);
+}
+// Import settings tu chuoi JSON (ghi de toan bo). Nem loi neu JSON sai.
+function importSettings(text) {
+  const parsed = JSON.parse(text);
+  const store = {
+    global: normalizeConfig(parsed.global || {}),
+    devices: Array.isArray(parsed.devices) ? parsed.devices.map((d) => ({
+      serial: d.serial,
+      name: d.name || d.serial,
+      useOwnConfig: !!d.useOwnConfig,
+      config: normalizeConfig(d.config || {}),
+    })) : [],
+  };
+  saveStore(store);
+  return store.devices.length;
 }
 
 // ---- Cau hinh CHUNG (dung cho device khong bat cau hinh rieng) ----
 function getGlobalConfig() {
   return normalizeConfig(loadStore().global);
 }
-function saveGlobalConfig(config) {
+// Luu cau hinh chung. opts.applyToAll = true -> dat TAT CA may ve dung cau hinh chung
+// (useOwnConfig=false), ghi de cau hinh rieng cua tung may.
+function saveGlobalConfig(config, opts = {}) {
   const s = loadStore();
   s.global = normalizeConfig(config);
+  if (opts.applyToAll) {
+    for (const dev of s.devices) dev.useOwnConfig = false;
+  }
   saveStore(s);
   return s.global;
 }
@@ -307,6 +346,8 @@ module.exports = {
   tasksFromConfig,
   // store / global / devices
   loadStore,
+  exportSettings,
+  importSettings,
   getGlobalConfig,
   saveGlobalConfig,
   listDevices,

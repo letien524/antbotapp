@@ -99,10 +99,13 @@
     <div class="csvbox" id="csvbox">
       <div style="font-size:10px;color:#8b949e;margin-bottom:5px">Cot: serial,name,gatherOn,gatherType,gatherLevel,huntOn,huntType,huntLevel,minStamina,pollSec<br />(type = so o loai; on = 1/0). Ap dung cho moi doi cua device.</div>
       <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,0,6,0,0,1,10,60"></textarea>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <button id="csvImport" class="primary small">⤒ Import</button>
-        <button id="csvExport" class="small">⤓ Export hien tai</button>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button id="csvImport" class="primary small">⤒ Import CSV</button>
+        <button id="csvExport" class="small">⤓ Export CSV</button>
+        <button id="settingsExport" class="small">⬇ Backup settings</button>
+        <button id="settingsImport" class="small">⬆ Restore settings</button>
       </div>
+      <div id="cfgPathNote" style="font-size:10px;color:#8b949e;margin-top:6px;word-break:break-all"></div>
     </div>
     <div id="devices"></div>
   </div>
@@ -114,6 +117,10 @@
       <div class="cfgopts" id="cfgopts">
         <label><input type="checkbox" id="useOwnConfig" /> Dung cau hinh RIENG cho may nay</label>
         <span style="color:#8b949e"> — bo chon = dung <b>cau hinh chung</b>.</span>
+      </div>
+      <div class="cfgopts" id="globalOpts" style="display:none">
+        <label><input type="checkbox" id="applyToAll" /> Ap dung cho TOAN BO cac may</label>
+        <span style="color:#8b949e"> — dat tat ca may ve dung cau hinh chung (ghi de cau hinh rieng).</span>
       </div>
 
       <div class="sect">

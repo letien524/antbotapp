@@ -221,6 +221,7 @@ async function openConfig(serial) {
   const { name, useOwnConfig, config } = await window.api.getConfig(serial);
   configTitleEl.innerHTML = `Cau hinh: <span>${name} (${serial})</span>`;
   document.getElementById('cfgopts').style.display = '';
+  document.getElementById('globalOpts').style.display = 'none';
   document.getElementById('useOwnConfig').checked = !!useOwnConfig;
   fillConfigForm(config);
   refresh();
@@ -233,6 +234,8 @@ async function openGlobalConfig() {
   const { config } = await window.api.getGlobalConfig();
   configTitleEl.innerHTML = 'Cau hinh CHUNG (bot chung cho moi may)';
   document.getElementById('cfgopts').style.display = 'none';
+  document.getElementById('globalOpts').style.display = '';
+  document.getElementById('applyToAll').checked = false;
   fillConfigForm(config);
   refresh();
 }
@@ -258,8 +261,9 @@ document.getElementById('saveCfg').onclick = async () => {
   const config = readConfigForm();
   try {
     if (configMode === 'global') {
-      const res = await window.api.saveGlobalConfig(config);
-      addLog({ level: 'INFO', line: `[UI] Da luu cau hinh CHUNG${res.restarted ? ` (restart ${res.restarted} may dung chung)` : ''}.` });
+      const applyToAll = document.getElementById('applyToAll').checked;
+      const res = await window.api.saveGlobalConfig(config, applyToAll);
+      addLog({ level: 'INFO', line: `[UI] Da luu cau hinh CHUNG${applyToAll ? ' + ap dung TOAN BO may' : ''}${res.restarted ? ` (restart ${res.restarted} may)` : ''}.` });
     } else {
       if (!configSerial) return;
       const useOwn = document.getElementById('useOwnConfig').checked;
@@ -348,6 +352,26 @@ document.getElementById('csvExport').onclick = async () => {
     addLog({ level: 'INFO', line: '[UI] Da export cau hinh ra CSV (textarea).' });
   } catch (e) { toastErr(e); }
 };
+// Backup TOAN BO settings (JSON) -> textarea, de copy sao luu / chuyen may.
+document.getElementById('settingsExport').onclick = async () => {
+  try {
+    const r = await window.api.exportSettings();
+    document.getElementById('csvbox').classList.add('show');
+    document.getElementById('csvText').value = r.json;
+    document.getElementById('cfgPathNote').textContent = 'File settings: ' + r.path;
+    addLog({ level: 'INFO', line: '[UI] Da backup settings (JSON) ra textarea. File luu tai: ' + r.path });
+  } catch (e) { toastErr(e); }
+};
+// Restore settings tu JSON trong textarea (ghi de toan bo).
+document.getElementById('settingsImport').onclick = async () => {
+  const text = document.getElementById('csvText').value;
+  if (!text.trim()) return;
+  try {
+    const r = await window.api.importSettings(text);
+    addLog({ level: 'INFO', line: `[UI] Da restore settings: ${r.imported} thiet bi.` });
+    refresh(); renderStatus();
+  } catch (e) { toastErr({ message: 'Restore loi (JSON khong hop le?): ' + (e.message || e) }); }
+};
 
 document.getElementById('refreshStatus').onclick = renderStatus;
 setInterval(renderStatus, 12000);
@@ -355,6 +379,7 @@ setInterval(renderStatus, 12000);
 // ---- Init ----
 (async () => {
   meta = await window.api.configMeta();
+  try { const p = await window.api.settingsPath(); document.getElementById('cfgPathNote').textContent = 'File settings: ' + p.path; } catch (e) { /* ignore */ }
   refresh();
   renderStatus();
 })();

@@ -28,6 +28,7 @@ class Worker {
     this.running = false;
     this.token = null; // token huy cho luot hien tai
     this.troopStatus = {}; // idx -> { task, type, level, at } : lan gui gan nhat cua tung doi
+    this.lastQueue = null; // queue doc gan nhat (dung cho bang trang thai, khoi OCR lai)
     this.log = makeLogger(`worker:${device.serial}`);
   }
 
@@ -76,6 +77,7 @@ class Worker {
         try {
           // CONG QUEUE: dem so troop dang hanh quan -> con o trong hay khong.
           const { onMap, queue } = await checkQueue(this.device, cfg);
+          if (queue) this.lastQueue = { ...queue, at: Date.now() };
           if (!onMap) {
             this.log.warn('[state] chua ve duoc world map -> cho, khong lam task.');
             for (const n of due) nextRun[n] = Date.now() + pollMs;

@@ -29,8 +29,9 @@ async function locate(device, templateName, opts = {}) {
   const tpl = fs.readFileSync(p);
   let templateScale = 1;
   try {
-    const { width } = await device.getScreenSize();
-    if (width) templateScale = width / REF_WIDTH;
+    await device.getScreenSize();
+    const aw = device.area ? device.area().width : 0;
+    if (aw) templateScale = aw / REF_WIDTH;
   } catch (e) { /* dung ti le 1 neu khong doc duoc */ }
   return findTemplate(screen, tpl, { ...opts, templateScale });
 }

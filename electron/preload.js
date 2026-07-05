@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   getConfig: (serial) => ipcRenderer.invoke('config:get', serial),
   saveConfig: (serial, config, useOwnConfig, name) => ipcRenderer.invoke('config:save', { serial, config, useOwnConfig, name }),
   getGlobalConfig: () => ipcRenderer.invoke('config:getGlobal'),
-  saveGlobalConfig: (config) => ipcRenderer.invoke('config:saveGlobal', { config }),
+  saveGlobalConfig: (config, applyToAll) => ipcRenderer.invoke('config:saveGlobal', { config, applyToAll }),
 
   // Load hang loat + chay song song + CSV
   loadAllDevices: () => ipcRenderer.invoke('devices:loadAll'),
@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   stopAll: () => ipcRenderer.invoke('workers:stopAll'),
   importCsv: (text) => ipcRenderer.invoke('config:importCsv', text),
   exportCsv: () => ipcRenderer.invoke('config:exportCsv'),
+  exportSettings: () => ipcRenderer.invoke('settings:export'),
+  importSettings: (text) => ipcRenderer.invoke('settings:import', text),
+  settingsPath: () => ipcRenderer.invoke('settings:path'),
 
   onLog: (cb) => ipcRenderer.on('log', (_e, entry) => cb(entry)),
 });

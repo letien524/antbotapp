@@ -14,7 +14,7 @@ const {
   HUNT_TYPES, RESOURCE_TYPES, TROOPS, CSV_HEADER,
   listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, saveDeviceConfig,
   getGlobalConfig, saveGlobalConfig, effectiveConfig, normalizeConfig,
-  importCsv, exportCsv,
+  importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH,
 } = require('../core/config');
 const { readMarchQueue } = require('../core/state/StateReader');
 
@@ -145,11 +145,14 @@ ipcMain.handle('devices:troopTables', async () => {
   for (const dev of listDevices()) {
     const cfg = effectiveConfig(dev.serial);
     const d = dm.get(dev.serial);
+    const w = workers.get(dev.serial);
+    // May dang chay -> dung queue worker da doc (KHONG OCR lai). May khong chay -> doc nhe 1 lan.
     let queue = null;
-    if (online.has(dev.serial) && d) {
+    if (w && w.lastQueue) {
+      queue = w.lastQueue;
+    } else if (!w && online.has(dev.serial) && d) {
       try { queue = await readMarchQueue(d, cfg); } catch (e) { queue = null; }
     }
-    const w = workers.get(dev.serial);
     const status = (w && w.troopStatus) || {};
     const allIdle = queue && queue.used === 0; // queue 0 -> moi doi deu ranh
     const troops = TROOPS.map((t) => {
@@ -189,6 +192,8 @@ ipcMain.handle('workers:startAll', async () => {
   for (const d of devs) {
     if (!online.has(d.serial) || workers.has(d.serial)) continue;
     try { await startWorker(d.serial); started += 1; } catch (e) { /* bo qua neu khong co task */ }
+    // Stagger: cach nhau ~1.5s de cac worker khong dong loat nang cung luc.
+    await new Promise((r) => setTimeout(r, 1500));
   }
   return { started, total: devs.length };
 });
@@ -209,14 +214,14 @@ ipcMain.handle('config:meta', async () => ({
 // ---- Cau hinh CHUNG (global) ----
 ipcMain.handle('config:getGlobal', async () => ({ config: getGlobalConfig() }));
 
-ipcMain.handle('config:saveGlobal', async (_e, { config }) => {
-  saveGlobalConfig(config);
-  // Restart cac worker dang dung cau hinh chung de ap dung ngay.
+ipcMain.handle('config:saveGlobal', async (_e, { config, applyToAll }) => {
+  saveGlobalConfig(config, { applyToAll });
+  // Restart cac worker dang dung cau hinh chung de ap dung ngay (applyToAll -> tat ca).
   let restarted = 0;
   for (const d of listDevices()) {
     if (!d.useOwnConfig && workers.has(d.serial)) { await restartIfRunning(d.serial); restarted += 1; }
   }
-  return { saved: true, restarted };
+  return { saved: true, restarted, applyToAll: !!applyToAll };
 });
 
 // ---- Cau hinh RIENG cua 1 device ----
@@ -244,6 +249,17 @@ ipcMain.handle('config:importCsv', async (_e, text) => {
 });
 
 ipcMain.handle('config:exportCsv', async () => ({ csv: exportCsv(), header: CSV_HEADER }));
+
+// ---- Backup / Restore TOAN BO settings (JSON) — de chuyen giua cac may ----
+ipcMain.handle('settings:export', async () => ({ json: exportSettings(), path: CONFIG_PATH }));
+
+ipcMain.handle('settings:import', async (_e, text) => {
+  const n = importSettings(text);
+  for (const s of [...workers.keys()]) await restartIfRunning(s);
+  return { imported: n };
+});
+
+ipcMain.handle('settings:path', async () => ({ path: CONFIG_PATH }));
 
 app.whenReady().then(createWindow);
 
