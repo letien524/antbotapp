@@ -14,7 +14,7 @@ const {
   HUNT_TYPES, RESOURCE_TYPES, TROOPS, CSV_HEADER,
   listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, saveDeviceConfig,
   getGlobalConfig, saveGlobalConfig, effectiveConfig, normalizeConfig,
-  importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH,
+  importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH, HUNT_AUTO_TYPES,
 } = require('../core/config');
 const { readMarchQueue } = require('../core/state/StateReader');
 
@@ -75,14 +75,15 @@ function startWorker(serial) {
   return { running: true, tasks };
 }
 
-// Dung child: gui 'stop' (child huy task ngay), kill neu khong thoat sau 4s.
+// Dung child (Nut DUNG cua nguoi dung): gui 'stop' + cleanup (dung Auto Hunt trong game
+// neu dang chay). Cho toi 12s de child kip mo popup + tap Stop truoc khi kill.
 function stopWorker(serial) {
   const child = procs.get(serial);
   if (!child) return;
   procs.delete(serial);
   statusStore.delete(serial);
-  try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
-  const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 4000);
+  try { child.send({ type: 'stop', cleanup: true }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
+  const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 12000);
   child.once('exit', () => clearTimeout(t));
 }
 
@@ -183,13 +184,12 @@ ipcMain.handle('devices:troopTables', async () => {
     const status = (st && st.troopStatus) || {};
     const allIdle = queue && queue.used === 0; // queue 0 -> moi doi deu ranh
     const troops = TROOPS.map((t) => {
-      const g = cfg.gather.troops[t.index] || {};
-      const h = cfg.hunt.troops[t.index] || {};
+      const g = (cfg.gather.troops && cfg.gather.troops[t.index]) || {};
       return {
         idx: t.index,
         name: t.label,
         gather: (cfg.gather.enabled && g.enabled !== false) ? { type: g.type, level: g.level } : null,
-        hunt: (cfg.hunt.enabled && h.enabled !== false) ? { type: h.type, level: h.level } : null,
+        hunt: null, // Auto Hunt la global (khong theo tung troop)
         status: allIdle ? null : (status[t.index] || null),
       };
     });
@@ -234,6 +234,7 @@ ipcMain.handle('workers:stopAll', async () => {
 // ---- Meta cho UI ----
 ipcMain.handle('config:meta', async () => ({
   huntTypes: HUNT_TYPES,
+  huntAutoTypes: HUNT_AUTO_TYPES,
   resourceTypes: RESOURCE_TYPES,
   troops: TROOPS,
 }));

@@ -14,6 +14,9 @@ const { Worker } = require('./scheduler/Worker');
 const { accountForSerial } = require('./config');
 const { logEmitter } = require('./logger');
 const { terminate } = require('./state/StateReader');
+const { CancelToken } = require('./cancel');
+const { ensureWorldMap } = require('./tasks/common');
+const { stopIfRunning } = require('./tasks/autohunt');
 
 const serial = process.argv[2];
 
@@ -34,17 +37,32 @@ const statusTimer = setInterval(() => {
 }, 4000);
 
 let stopping = false;
-async function shutdown() {
+async function shutdown(opts = {}) {
   if (stopping) return;
   stopping = true;
   clearInterval(statusTimer);
-  worker.stop(); // huy ngay task dang chay
+  await worker.stopAndWait(); // huy task dang chay + cho vong lam viec thoat han
+
+  // Don dep: neu nguoi dung bam DUNG va hunt bat -> dung Auto Hunt trong game (neu dang chay).
+  if (opts.cleanup) {
+    try {
+      const cfg = (account && account.config) || {};
+      if (cfg.hunt && cfg.hunt.enabled) {
+        device.cancelToken = new CancelToken(); // token moi (khong bi huy) cho buoc don dep
+        if (await ensureWorldMap(device, cfg)) {
+          const stopped = await stopIfRunning(device);
+          if (stopped) send({ type: 'log', entry: { level: 'INFO', scope: `worker:${serial}`, line: '[stop] Da dung Auto Hunt trong game.' } });
+        }
+      }
+    } catch (e) { /* ignore loi don dep */ }
+  }
+
   await terminate().catch(() => {}); // dong OCR worker cua process nay
   setTimeout(() => process.exit(0), 300);
 }
 
 process.on('message', (msg) => {
-  if (msg === 'stop' || (msg && msg.type === 'stop')) shutdown();
+  if (msg === 'stop' || (msg && msg.type === 'stop')) shutdown({ cleanup: !!(msg && msg.cleanup) });
 });
 process.on('SIGTERM', shutdown);
 

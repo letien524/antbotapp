@@ -47,6 +47,7 @@
   .fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .fields.dim { opacity: .4; pointer-events: none; }
   .trhead, .trow { display: grid; grid-template-columns: 36px 150px 1fr 96px; gap: 10px; align-items: center; }
+  .trhead.h2, .trow.h2 { grid-template-columns: 36px 1fr; }
   .trhead { font-size: 10px; color: #8b949e; text-transform: uppercase; padding: 0 0 6px; }
   .trow { padding: 6px 0; border-top: 1px solid #1c2230; }
   .trow .tlabel { font-size: 12px; }
@@ -126,13 +127,11 @@
       <div class="sect">
         <div class="head">
           <input type="checkbox" id="h_enabled" />
-          <label for="h_enabled">① 🐛 San da thu — cau hinh tung doi (uu tien 1)</label>
+          <label for="h_enabled">① 🐛 Auto Hunt — tich chon loai can san (uu tien 1)</label>
         </div>
-        <div style="display:flex;gap:12px;margin-bottom:10px">
-          <div class="field" style="max-width:170px"><span>The luc toi thieu (/100)</span><input type="number" id="h_minstam" min="0" max="100" value="10" /></div>
-          <div class="field" style="max-width:200px"><span>Cho hoi the luc (phut)</span><input type="number" id="h_recover" min="1" max="240" value="30" /></div>
-        </div>
-        <div class="trhead"><span>Bat</span><span>Doi</span><span>Loai da thu</span><span>Level</span></div>
+        <div style="font-size:10px;color:#8b949e;margin-bottom:8px">Dung tinh nang Auto Hunt cua game (icon con bo). So lan max tu chia deu cho so loai da chon. Neu level chon > muc game cho phep thi lay muc MAX cua game.</div>
+        <div class="field" style="max-width:240px;margin-bottom:10px"><span>Level quai (chung cho tat ca loai)</span><select id="h_level"></select></div>
+        <div class="trhead h2"><span>San</span><span>Loai (target)</span></div>
         <div class="trows" id="h_rows"></div>
       </div>
 

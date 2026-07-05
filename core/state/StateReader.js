@@ -154,6 +154,19 @@ async function isMarchEnabled(device, cfg = {}) {
   }
 }
 
+// Doc 1 con so tu 1 vung % (theo game area). Dung cho Hunting Times cua Auto Hunt.
+async function readNumberRegion(device, region) {
+  try {
+    const img = await Jimp.read(await device.capture());
+    const text = await ocrRegion(img, region, 'contrast', areaOf(device, img));
+    const m = text.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  } catch (e) {
+    if (e && e.cancelled) throw e;
+    return null;
+  }
+}
+
 // Chup man hinh device roi doc dem hanh quan. Tra ve null neu doc that bai.
 async function readMarchQueue(device, cfg = {}) {
   try {
@@ -169,5 +182,6 @@ async function readMarchQueue(device, cfg = {}) {
 
 module.exports = {
   readMarchQueue, parseQueueFromPng, readTroopStamina, isMarchEnabled, isGoldButton,
+  readNumberRegion,
   terminate, QUEUE_REGION, STAMINA_REGIONS, MARCH_BTN_REGION,
 };

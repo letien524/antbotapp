@@ -49,6 +49,15 @@ const RESOURCE_TYPES = [
   { slot: 4, label: 'Diamond (o 5)', levels: LV_1_15 },
 ];
 
+// Cac loai target cho AUTO HUNT (index = vi tri trong carousel popup Auto Hunt).
+const HUNT_AUTO_TYPES = [
+  { index: 0, label: 'Meat (Ladybug)' },
+  { index: 1, label: 'Plants (Locust)' },
+  { index: 2, label: 'Wet Soil (Snail)' },
+  { index: 3, label: 'Sand' },
+  { index: 4, label: 'Honeydew' },
+];
+
 // Cac DOI (troop) co the chon di lam nhiem vu. Toi da 4 doi/may.
 const TROOPS = [
   { index: 0, label: 'Doi 1 (Pro Troop)' },
@@ -192,13 +201,29 @@ function defaultTroopRows() {
   return TROOPS.map((t) => ({ type: 0, level: 1, enabled: t.index < 2 }));
 }
 
+// Mac dinh cac loai auto hunt: bat 2 loai dau (Meat, Plants).
+function defaultHuntTypes() {
+  return HUNT_AUTO_TYPES.map((t) => ({ enabled: t.index < 2 }));
+}
+
 function defaultConfig() {
   return {
     gather: { enabled: true, troops: defaultTroopRows() },
-    hunt: { enabled: true, minStamina: 10, recoverSec: 1800, troops: defaultTroopRows() },
+    // Auto Hunt: tich chon loai + 1 level CHUNG cho tat ca (game tu cap neu vuot max).
+    hunt: { enabled: true, level: 1, types: defaultHuntTypes() },
     pollSec: 60, // chu ky kiem tra doi ranh de gui luot moi
     world: {},
   };
+}
+
+// Chuan hoa danh sach loai auto hunt (du 5 loai, moi loai chi {enabled}).
+function normalizeHuntTypes(types) {
+  const out = [];
+  for (let i = 0; i < HUNT_AUTO_TYPES.length; i += 1) {
+    const has = Array.isArray(types) && types[i];
+    out.push({ enabled: has ? (has.enabled !== false) : (i < 2) });
+  }
+  return out;
 }
 
 // Chuan hoa mang dong cau hinh troop: dam bao du so dong = so DOI (4).
@@ -229,9 +254,8 @@ function normalizeConfig(cfg = {}) {
     },
     hunt: {
       enabled: h.enabled !== false,
-      minStamina: Number.isFinite(h.minStamina) ? h.minStamina : 10,
-      recoverSec: Number(h.recoverSec) > 0 ? Number(h.recoverSec) : 1800,
-      troops: normalizeTroopRows(h.troops),
+      level: Number(h.level) > 0 ? Number(h.level) : 1,
+      types: normalizeHuntTypes(h.types),
     },
     pollSec: Number(c.pollSec) > 0 ? Number(c.pollSec) : 60,
     world: c.world && typeof c.world === 'object' ? c.world : {},
@@ -336,6 +360,7 @@ function exportCsv() {
 module.exports = {
   CONFIG_PATH,
   HUNT_TYPES,
+  HUNT_AUTO_TYPES,
   RESOURCE_TYPES,
   TROOPS,
   CSV_HEADER,

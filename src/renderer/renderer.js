@@ -185,6 +185,26 @@ function readTroopRows(els) {
   }));
 }
 
+// Dung cac dong AUTO HUNT: moi loai 1 dong (checkbox | ten loai). Level la 1 dropdown CHUNG.
+function buildHuntTypeRows(container, typeMeta, typesConfig) {
+  container.innerHTML = '';
+  const els = [];
+  (typeMeta || []).forEach((t, i) => {
+    const rc = (typesConfig && typesConfig[i]) || { enabled: false };
+    const div = document.createElement('div');
+    div.className = 'trow h2';
+    div.innerHTML = `
+      <input type="checkbox" class="tenabled" ${rc.enabled !== false ? 'checked' : ''} />
+      <span class="tlabel">${t.label}</span>`;
+    container.appendChild(div);
+    els.push({ enabledEl: div.querySelector('.tenabled') });
+  });
+  return els;
+}
+function readHuntTypeRows(els) {
+  return els.map((e) => ({ enabled: e.enabledEl.checked }));
+}
+
 function bindEnableToggle(chkId, rowsId) {
   const chk = document.getElementById(chkId);
   const rows = document.getElementById(rowsId);
@@ -193,7 +213,7 @@ function bindEnableToggle(chkId, rowsId) {
 }
 
 let gRowEls = [];
-let hRowEls = [];
+let hTypeEls = [];
 let configMode = 'device'; // 'device' | 'global'
 
 // Do config vao form (dung chung cho device va global).
@@ -202,9 +222,12 @@ function fillConfigForm(config) {
   gRowEls = buildTroopRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.troops);
 
   document.getElementById('h_enabled').checked = !!config.hunt.enabled;
-  document.getElementById('h_minstam').value = config.hunt.minStamina != null ? config.hunt.minStamina : 10;
-  document.getElementById('h_recover').value = Math.round((config.hunt.recoverSec || 1800) / 60);
-  hRowEls = buildTroopRows(document.getElementById('h_rows'), meta.huntTypes, config.hunt.troops);
+  const hLevelSel = document.getElementById('h_level');
+  if (!hLevelSel.options.length) {
+    for (let lv = 1; lv <= 20; lv += 1) { const o = document.createElement('option'); o.value = lv; o.textContent = 'Lv ' + lv; hLevelSel.appendChild(o); }
+  }
+  hLevelSel.value = config.hunt.level || 1;
+  hTypeEls = buildHuntTypeRows(document.getElementById('h_rows'), meta.huntAutoTypes, config.hunt.types);
 
   document.getElementById('pollSec').value = config.pollSec || 60;
 
@@ -249,9 +272,8 @@ function readConfigForm() {
     },
     hunt: {
       enabled: document.getElementById('h_enabled').checked,
-      minStamina: Math.max(0, num('h_minstam', 10)),
-      recoverSec: Math.max(60, num('h_recover', 30) * 60),
-      troops: readTroopRows(hRowEls),
+      level: Math.max(1, num('h_level', 1)),
+      types: readHuntTypeRows(hTypeEls),
     },
     pollSec: Math.max(10, num('pollSec', 60)),
   };

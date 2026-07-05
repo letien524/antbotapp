@@ -37,10 +37,8 @@ class Worker {
   //  - con lai -> poll binh thuong (pollSec) de gui luot moi khi doi ve.
   _nextDelayMs(name, res, cfg) {
     const pollMs = (Number(cfg.pollSec) > 0 ? cfg.pollSec : 60) * 1000;
-    if (name === 'huntBeast' && res && res.reason === 'low_stamina') {
-      const recoverSec = (cfg.hunt && Number(cfg.hunt.recoverSec) > 0) ? cfg.hunt.recoverSec : 1800;
-      return recoverSec * 1000;
-    }
+    // Auto Hunt: mot luot di+ve ~2p20s -> check lai sau ~140s.
+    if (name === 'huntBeast') return 140 * 1000;
     return pollMs;
   }
 
@@ -48,7 +46,7 @@ class Worker {
     if (this.running) return;
     this.running = true;
     this.log.info(`Worker khoi dong (tasks: ${this.taskNames.join(', ')})`);
-    this._loop().catch((e) => this.log.error(`Worker crash: ${e.message}`));
+    this._loopPromise = this._loop().catch((e) => this.log.error(`Worker crash: ${e.message}`));
   }
 
   // Dung NGAY: huy token -> thao tac device/sleep dang cho bi abort tuc thi.
@@ -56,6 +54,12 @@ class Worker {
     this.running = false;
     if (this.token) this.token.cancel();
     this.log.info('Worker da nhan lenh DUNG (huy task dang chay ngay).');
+  }
+
+  // Dung roi CHO vong lam viec thoat han (de sau do lam buoc don dep an toan).
+  async stopAndWait() {
+    this.stop();
+    if (this._loopPromise) await this._loopPromise.catch(() => {});
   }
 
   async _loop() {
