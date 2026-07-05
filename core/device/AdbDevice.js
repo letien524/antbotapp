@@ -56,6 +56,12 @@ class AdbDevice {
     });
   }
 
+  // Doc LAI do phan giai (xoa cache) — goi khi bat dau chay bot phong khi doi emulator/do phan giai.
+  async refreshSize() {
+    this.size = null;
+    return this.getScreenSize();
+  }
+
   // Lay do phan giai man hinh (dung de quy doi toa do % -> pixel).
   async getScreenSize() {
     this._check();

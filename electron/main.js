@@ -50,6 +50,9 @@ async function startWorker(serial) {
   let d = dm.get(serial);
   if (!d) { await dm.refresh(); d = dm.get(serial); }
   if (!d) throw new Error('Device chua ket noi (offline)');
+  // Lay lai thong so man hinh moi bat dau (phong khi doi emulator/do phan giai).
+  const size = await d.refreshSize().catch(() => null);
+  if (size) d.log.info(`Bat dau — kich thuoc man hinh ${size.width}x${size.height}.`);
   const account = accountForSerial(serial);
   const tasks = tasksFromConfig(account.config);
   if (tasks.length === 0) throw new Error('Chua bat task nao trong cau hinh');
@@ -74,13 +77,23 @@ async function restartIfRunning(serial) {
 // ---- Home: danh sach DEVICE DA THEM (kem online/running/useOwnConfig) ----
 ipcMain.handle('devices:list', async () => {
   const online = await onlineSerials();
-  return listDevices().map((d) => ({
-    serial: d.serial,
-    name: d.name,
-    useOwnConfig: d.useOwnConfig,
-    online: online.has(d.serial),
-    running: workers.has(d.serial),
-  }));
+  const out = [];
+  for (const d of listDevices()) {
+    let size = null;
+    if (online.has(d.serial)) {
+      const dev = dm.get(d.serial);
+      if (dev) size = await dev.getScreenSize().catch(() => null);
+    }
+    out.push({
+      serial: d.serial,
+      name: d.name,
+      useOwnConfig: d.useOwnConfig,
+      online: online.has(d.serial),
+      running: workers.has(d.serial),
+      size,
+    });
+  }
+  return out;
 });
 
 // Them device thu cong (serial + ten).

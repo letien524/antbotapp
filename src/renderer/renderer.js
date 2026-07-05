@@ -26,7 +26,7 @@ async function refresh() {
         <span class="badge ${d.running ? 'on' : ''}">${d.running ? 'RUNNING' : 'idle'}</span>
         <span class="badge ${d.useOwnConfig ? 'own' : ''}">${d.useOwnConfig ? 'cau hinh rieng' : 'dung chung'}</span>
       </div>
-      <div class="serial2">${d.serial}</div>
+      <div class="serial2">${d.serial}${d.size ? ` · ${d.size.width}×${d.size.height}` : ''}</div>
       <div class="row">
         <button class="small" data-act="config">⚙ Cau hinh</button>
         <button class="small" data-act="rename">✎</button>
