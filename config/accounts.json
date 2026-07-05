@@ -1,0 +1,81 @@
+{
+  "global": {
+    "gather": {
+      "enabled": true,
+      "troops": [
+        {
+          "type": 1,
+          "level": 3,
+          "enabled": true
+        },
+        {
+          "type": 1,
+          "level": 3,
+          "enabled": true
+        }
+      ]
+    },
+    "hunt": {
+      "enabled": false,
+      "minStamina": 10,
+      "recoverSec": 1800,
+      "troops": [
+        {
+          "type": 1,
+          "level": 1,
+          "enabled": true
+        },
+        {
+          "type": 3,
+          "level": 1,
+          "enabled": true
+        }
+      ]
+    },
+    "pollSec": 60,
+    "world": {}
+  },
+  "devices": [
+    {
+      "serial": "localhost:5555",
+      "name": "Tai khoan chinh",
+      "useOwnConfig": false,
+      "config": {
+        "gather": {
+          "enabled": true,
+          "troops": [
+            {
+              "type": 2,
+              "level": 3,
+              "enabled": true
+            },
+            {
+              "type": 3,
+              "level": 3,
+              "enabled": true
+            }
+          ]
+        },
+        "hunt": {
+          "enabled": false,
+          "minStamina": 10,
+          "recoverSec": 1800,
+          "troops": [
+            {
+              "type": 1,
+              "level": 1,
+              "enabled": true
+            },
+            {
+              "type": 3,
+              "level": 1,
+              "enabled": true
+            }
+          ]
+        },
+        "pollSec": 60,
+        "world": {}
+      }
+    }
+  ]
+}

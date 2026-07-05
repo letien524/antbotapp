@@ -1,0 +1,161 @@
+<meta charset="utf-8" />
+<title>AntBot Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #0f1216; color: #e6e6e6; }
+  header { padding: 12px 16px; background: #161b22; border-bottom: 1px solid #262c36; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+  main { display: grid; grid-template-columns: 340px 1fr; height: calc(100vh - 45px); }
+  .left { border-right: 1px solid #262c36; overflow: auto; padding: 12px; }
+  .right { display: flex; flex-direction: column; overflow: hidden; }
+  button { background: #21262d; color: #e6e6e6; border: 1px solid #363b44; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #2d333b; }
+  button.primary { background: #238636; border-color: #2ea043; }
+  button.danger { background: #6e2224; border-color: #a83236; }
+  button.small { padding: 4px 8px; font-size: 11px; }
+  .device { border: 1px solid #262c36; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #12161c; }
+  .device.sel { border-color: #388bfd; }
+  .lefttools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .lefttools button { flex: 1 1 auto; }
+  .csvbox { display: none; border: 1px solid #262c36; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #12161c; }
+  .csvbox.show { display: block; }
+  .csvbox textarea { width: 100%; background: #0d1117; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 8px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; resize: vertical; }
+  .addbox { display: none; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .addbox.show { display: flex; }
+  .addbox input { flex: 1 1 120px; background: #0d1117; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+  .badge.off { background: #6e2224; }
+  .badge.own { background: #1f6feb; }
+  .device .name { font-weight: 600; font-size: 13px; }
+  .device .serial2 { color: #8b949e; font-size: 11px; }
+  .cfgopts { border: 1px solid #262c36; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; background: #12161c; font-size: 12px; }
+  .cfgopts label { cursor: pointer; }
+  .device .serial { font-weight: 600; font-size: 13px; }
+  .device .meta { color: #8b949e; font-size: 11px; margin: 4px 0 8px; }
+  .device .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #30363d; }
+  .badge.on { background: #196c2e; }
+
+  /* Config editor */
+  .config { display: none; padding: 14px 16px; border-bottom: 1px solid #262c36; background: #12161c; overflow: auto; max-height: 46vh; }
+  .config.show { display: block; }
+  .config h2 { font-size: 13px; margin: 0 0 12px; }
+  .config h2 span { color: #8b949e; font-weight: 400; }
+  .sect { border: 1px solid #262c36; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .sect .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .sect .head label { font-weight: 600; font-size: 13px; cursor: pointer; }
+  .fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .fields.dim { opacity: .4; pointer-events: none; }
+  .trhead, .trow { display: grid; grid-template-columns: 36px 150px 1fr 96px; gap: 10px; align-items: center; }
+  .trhead { font-size: 10px; color: #8b949e; text-transform: uppercase; padding: 0 0 6px; }
+  .trow { padding: 6px 0; border-top: 1px solid #1c2230; }
+  .trow .tlabel { font-size: 12px; }
+  .trow select { background: #0d1117; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; font-size: 12px; width: 100%; }
+  .trows.dim { opacity: .4; pointer-events: none; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field span { font-size: 11px; color: #8b949e; }
+  .field select, .field input { background: #0d1117; color: #e6e6e6; border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+  .config .actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+  .config .hint { color: #8b949e; font-size: 11px; margin-left: auto; }
+  .toprow { display: flex; gap: 16px; align-items: end; margin-bottom: 12px; }
+
+  .status { flex: 1; overflow: auto; background: #08090b; padding: 12px; }
+  .statdev { border: 1px solid #262c36; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .statdev .dhead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #12161c; font-size: 13px; font-weight: 600; }
+  .statdev .qbadge { margin-left: auto; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 6px; background: #30363d; }
+  .statdev .qbadge.full { background: #6e2224; } .statdev .qbadge.free { background: #196c2e; }
+  table.troops { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.troops th { text-align: left; color: #8b949e; font-weight: 500; font-size: 10px; text-transform: uppercase; padding: 6px 12px; border-bottom: 1px solid #262c36; }
+  table.troops td { padding: 7px 12px; border-bottom: 1px solid #1c2230; }
+  table.troops tr:last-child td { border-bottom: none; }
+  .stbusy { color: #e3b341; } .stidle { color: #7ee787; } .stoff { color: #8b949e; }
+  .logs { height: 200px; overflow: auto; background: #08090b; border-top: 1px solid #262c36; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.6; }
+  .log-INFO { color: #9fd2ff; } .log-WARN { color: #e3b341; } .log-ERROR { color: #f85149; }
+  .toolbar { padding: 8px 12px; border-bottom: 1px solid #262c36; display: flex; gap: 8px; align-items: center; }
+</style>
+
+<header>
+  <span class="dot"></span>
+  <h1>AntBot — The Ant: Underground Kingdom</h1>
+  <span style="color:#8b949e;font-size:12px">quan ly task &amp; farm da tai khoan</span>
+</header>
+
+<main>
+  <div class="left">
+    <div class="lefttools">
+      <button id="loadAll">⤓ Load thiet bi</button>
+      <button id="toggleAdd">➕ Them</button>
+      <button id="globalCfgBtn">⚙ Cau hinh chung</button>
+      <button id="startAll" class="primary">▶ Chay tat ca</button>
+      <button id="stopAll" class="danger">■ Dung tat ca</button>
+      <button id="refresh">↻</button>
+      <button id="toggleCsv">⇄ CSV</button>
+    </div>
+    <div class="addbox" id="addbox">
+      <input id="addSerial" placeholder="serial (vd 127.0.0.1:5556)" />
+      <input id="addName" placeholder="ten thiet bi" />
+      <button id="addSubmit" class="primary small">Them</button>
+    </div>
+    <div class="csvbox" id="csvbox">
+      <div style="font-size:10px;color:#8b949e;margin-bottom:5px">Cot: serial,name,gatherOn,gatherType,gatherLevel,huntOn,huntType,huntLevel,minStamina,pollSec<br />(type = so o loai; on = 1/0). Ap dung cho moi doi cua device.</div>
+      <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,0,6,0,0,1,10,60"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button id="csvImport" class="primary small">⤒ Import</button>
+        <button id="csvExport" class="small">⤓ Export hien tai</button>
+      </div>
+    </div>
+    <div id="devices"></div>
+  </div>
+  <div class="right">
+    <!-- Config editor -->
+    <div class="config" id="config">
+      <h2 id="configTitle"></h2>
+
+      <div class="cfgopts" id="cfgopts">
+        <label><input type="checkbox" id="useOwnConfig" /> Dung cau hinh RIENG cho may nay</label>
+        <span style="color:#8b949e"> — bo chon = dung <b>cau hinh chung</b>.</span>
+      </div>
+
+      <div class="sect">
+        <div class="head">
+          <input type="checkbox" id="h_enabled" />
+          <label for="h_enabled">① 🐛 San da thu — cau hinh tung doi (uu tien 1)</label>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:10px">
+          <div class="field" style="max-width:170px"><span>The luc toi thieu (/100)</span><input type="number" id="h_minstam" min="0" max="100" value="10" /></div>
+          <div class="field" style="max-width:200px"><span>Cho hoi the luc (phut)</span><input type="number" id="h_recover" min="1" max="240" value="30" /></div>
+        </div>
+        <div class="trhead"><span>Bat</span><span>Doi</span><span>Loai da thu</span><span>Level</span></div>
+        <div class="trows" id="h_rows"></div>
+      </div>
+
+      <div class="sect">
+        <div class="head">
+          <input type="checkbox" id="g_enabled" />
+          <label for="g_enabled">② 🌿 Thu thap tai nguyen — cau hinh tung doi (uu tien 2)</label>
+        </div>
+        <div class="trhead"><span>Bat</span><span>Doi</span><span>Loai tai nguyen</span><span>Level</span></div>
+        <div class="trows" id="g_rows"></div>
+      </div>
+
+      <div class="toprow">
+        <div class="field" style="max-width:220px"><span>Chu ky kiem tra doi ranh (giay)</span><input type="number" id="pollSec" min="10" max="600" value="60" /></div>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="saveCfg">💾 Luu cau hinh</button>
+        <button id="closeCfg">Dong</button>
+        <span class="hint">Luu se ap dung ngay; neu worker dang chay se tu restart.</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span style="font-size:12px;color:#8b949e">Trang thai troop cac may</span>
+      <button id="refreshStatus" class="small" style="margin-left:auto">🔄 Cap nhat</button>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="logs" id="logs"></div>
+  </div>
+</main>
+
+<script src="renderer.js"></script>

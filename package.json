@@ -1,0 +1,21 @@
+{
+  "name": "antbot",
+  "version": "0.1.0",
+  "description": "Bot tu dong The Ant: Underground Kingdom - dieu khien qua ADB (emulator + may that), farm da tai khoan",
+  "main": "electron/main.js",
+  "scripts": {
+    "bot": "node cli.js",
+    "start": "electron .",
+    "devices": "node cli.js devices",
+    "capture": "node cli.js capture"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "jimp": "^0.22.12",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
