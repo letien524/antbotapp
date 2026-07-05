@@ -37,10 +37,14 @@ const WORLD = {
     [0.53, 0.52],
     [0.45, 0.47],
   ],
-  // Vi tri chon tung DOI (troop row) tren man March Troops. Account nay 2 doi.
+  // Vi tri chon tung DOI (troop row) tren man March Troops. Toi da 4 doi.
+  // Doi 1,2 da verify. Doi 3,4 uoc luong theo khoang cach hang (~0.24) — can verify khi
+  // tai khoan mo khoa doi 3-4 (co the phai cuon man March). Ghi de qua config.world.troopRows.
   troopRows: [
-    [0.20, 0.34],   // Doi 1 (Pro Troop, hang tren)
-    [0.20, 0.58],   // Doi 2 (Troop I, hang duoi)
+    [0.20, 0.34],   // Doi 1 (Pro Troop)
+    [0.20, 0.58],   // Doi 2 (Troop I)
+    [0.20, 0.80],   // Doi 3 (uoc luong)
+    [0.20, 0.80],   // Doi 4 (uoc luong - co the can cuon man)
   ],
 };
 

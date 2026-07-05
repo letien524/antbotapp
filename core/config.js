@@ -40,10 +40,12 @@ const RESOURCE_TYPES = [
   { slot: 4, label: 'Diamond (o 5)', levels: LV_1_15 },
 ];
 
-// Cac DOI (troop) co the chon di lam nhiem vu. Account nay co 2 doi.
+// Cac DOI (troop) co the chon di lam nhiem vu. Toi da 4 doi/may.
 const TROOPS = [
   { index: 0, label: 'Doi 1 (Pro Troop)' },
   { index: 1, label: 'Doi 2 (Troop I)' },
+  { index: 2, label: 'Doi 3 (Troop II)' },
+  { index: 3, label: 'Doi 4 (Troop III)' },
 ];
 
 // So lan bam '+' tu MIN de dat `level` cho 1 loai (kind='hunt'|'gather', slot).
@@ -145,9 +147,10 @@ function effectiveConfig(serial) {
   return getGlobalConfig();
 }
 
-// Mac dinh 1 dong cau hinh cho moi DOI (troop): loai gi, level, bat/tat.
+// Mac dinh 1 dong cau hinh cho moi DOI (troop). Chi bat 2 doi dau (da co san),
+// doi 3-4 tat mac dinh (bat khi tai khoan mo khoa them).
 function defaultTroopRows() {
-  return TROOPS.map(() => ({ type: 0, level: 1, enabled: true }));
+  return TROOPS.map((t) => ({ type: 0, level: 1, enabled: t.index < 2 }));
 }
 
 function defaultConfig() {
@@ -159,15 +162,17 @@ function defaultConfig() {
   };
 }
 
-// Chuan hoa mang dong cau hinh troop: dam bao du so dong = so DOI, dien mac dinh.
+// Chuan hoa mang dong cau hinh troop: dam bao du so dong = so DOI (4).
+// Dong CO SAN giu enabled cua no; dong PAD them (mo rong 2->4) mac dinh TAT.
 function normalizeTroopRows(rows) {
   const out = [];
   for (let i = 0; i < TROOPS.length; i += 1) {
-    const r = (Array.isArray(rows) && rows[i]) || {};
+    const has = Array.isArray(rows) && rows[i];
+    const r = has || {};
     out.push({
       type: Number.isInteger(r.type) ? r.type : 0,
       level: Number(r.level) > 0 ? Number(r.level) : 1,
-      enabled: r.enabled !== false,
+      enabled: has ? (r.enabled !== false) : false,
     });
   }
   return out;

@@ -35,9 +35,27 @@ async function refresh() {
         <button class="small danger" data-act="stop">■</button>
       </div>`;
     card.querySelector('[data-act="config"]').onclick = () => openConfig(d.serial);
-    card.querySelector('[data-act="rename"]').onclick = async () => {
-      const name = prompt('Ten moi cho ' + d.serial, d.name);
-      if (name != null) { await window.api.renameDevice(d.serial, name); refresh(); }
+    // Sua ten INLINE (Electron khong ho tro prompt()).
+    card.querySelector('[data-act="rename"]').onclick = () => {
+      const nameEl = card.querySelector('.name');
+      nameEl.innerHTML = '';
+      const inp = document.createElement('input');
+      inp.value = d.name;
+      inp.style.cssText = 'width:70%;background:#0d1117;color:#e6e6e6;border:1px solid #388bfd;border-radius:6px;padding:4px 8px;font-size:13px;';
+      nameEl.appendChild(inp);
+      inp.focus(); inp.select();
+      let done = false;
+      const save = async () => {
+        if (done) return; done = true;
+        const v = inp.value.trim();
+        if (v && v !== d.name) await window.api.renameDevice(d.serial, v);
+        refresh();
+      };
+      inp.onkeydown = (e) => {
+        if (e.key === 'Enter') save();
+        else if (e.key === 'Escape') { done = true; refresh(); }
+      };
+      inp.onblur = save;
     };
     card.querySelector('[data-act="remove"]').onclick = async () => {
       if (confirm('Xoa thiet bi ' + d.name + ' (' + d.serial + ')?')) { await window.api.removeDevice(d.serial); refresh(); }

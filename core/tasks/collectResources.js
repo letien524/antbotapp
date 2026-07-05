@@ -31,6 +31,8 @@ async function collectResources(device, ctx = {}) {
   // Het o hanh quan -> khong lam gi. Uu tien queue Worker da doc san (tranh doc lai).
   const q = (ctx && 'queue' in ctx) ? ctx.queue : await readMarchQueue(device, cfg);
   let freeSlots = rows.length;
+  // So troop thuc te cua may = tong o hanh quan (X/Y -> Y). Chi lay config cua tung ay doi.
+  let troopCount = rows.length;
   if (q) {
     log.info(`[state] hanh quan ${q.used}/${q.total} (con trong ${q.free})`);
     if (q.free <= 0) {
@@ -38,10 +40,11 @@ async function collectResources(device, ctx = {}) {
       return { ok: false, reason: 'no_free_troop' };
     }
     freeSlots = q.free;
+    if (q.total) troopCount = Math.min(rows.length, q.total);
   }
 
   let sent = 0;
-  for (let troopIdx = 0; troopIdx < rows.length; troopIdx += 1) {
+  for (let troopIdx = 0; troopIdx < troopCount; troopIdx += 1) {
     if (sent >= freeSlots) break; // da dung het o trong
     const row = rows[troopIdx];
     if (!row || row.enabled === false) continue;
