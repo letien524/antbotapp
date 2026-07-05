@@ -8,8 +8,7 @@
 // Config: cfg.gather = { enabled, troops: [ {type, level, enabled}, ... ] }  (index = doi)
 
 const {
-  sleep, ensureWorldMap, openSearch, selectTab, selectSlot, setLevel,
-  pressGo, openTargetCard, deployMarch, recover,
+  ensureWorldMap, searchTarget, deployMarch, recover,
 } = require('./common');
 const { levelToClicks } = require('../config');
 const { readMarchQueue } = require('../state/StateReader');
@@ -49,29 +48,25 @@ async function collectResources(device, ctx = {}) {
     const row = rows[troopIdx];
     if (!row || row.enabled === false) continue;
 
-    // 1) Mo Search -> chon loai + level cua doi nay.
-    if (!(await openSearch(device, cfg))) {
-      log.warn('[collectResources] khong mo duoc panel Search -> dung task.');
-      await recover(device, 1);
-      break;
-    }
-    await selectTab(device, cfg, 'resource');
-    await selectSlot(device, cfg, row.type);
-    await setLevel(device, cfg, levelToClicks('gather', row.type, row.level));
-
-    // 2) Go -> 3) mo card Gather.
-    await pressGo(device, cfg);
-    const gather = await openTargetCard(device, cfg, 'btn_gather', { threshold: 0.7 });
+    // 1) Tim o tai nguyen RANH (dung cache game; bo qua o bi nguoi khac khai thac -> tim cai khac).
+    const gather = await searchTarget(device, cfg, {
+      tab: 'resource',
+      type: row.type,
+      level: row.level,
+      plusClicks: levelToClicks('gather', row.type, row.level),
+      actionTemplate: 'btn_gather',
+      retries: 4,
+    });
     if (!gather) {
-      log.warn(`[collectResources] Doi ${troopIdx + 1}: khong thay muc tieu (loai/level nay khong co gan to). Bo qua.`);
+      log.warn(`[collectResources] Doi ${troopIdx + 1}: khong tim duoc o ranh (het / bi chiem). Bo qua.`);
       await recover(device, 2);
       continue;
     }
     await device.tap(gather.x, gather.y);
-    await device.sleep(900);
+    await device.sleep(800);
 
-    // 4) March bang DUNG doi nay.
-    const marched = await deployMarch(device, cfg, troopIdx);
+    // 2) March bang troop game da focus (troop ranh).
+    const marched = await deployMarch(device, cfg);
     if (marched) {
       sent += 1;
       if (ctx.report) ctx.report(troopIdx, { task: 'gather', type: row.type, level: row.level });
