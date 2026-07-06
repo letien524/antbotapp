@@ -41,10 +41,10 @@ const WORLD = {
   // Doi 1,2 da verify. Doi 3,4 uoc luong theo khoang cach hang (~0.24) — can verify khi
   // tai khoan mo khoa doi 3-4 (co the phai cuon man March). Ghi de qua config.world.troopRows.
   troopRows: [
-    [0.20, 0.34],   // Doi 1 (Pro Troop)
-    [0.20, 0.58],   // Doi 2 (Troop I)
-    [0.20, 0.80],   // Doi 3 (uoc luong)
-    [0.20, 0.80],   // Doi 4 (uoc luong - co the can cuon man)
+    [0.30, 0.34],   // Doi 1 (Pro Troop) — tap header card de chon (da verify)
+    [0.30, 0.58],   // Doi 2 (Troop I) — da verify
+    [0.30, 0.80],   // Doi 3 (uoc luong)
+    [0.30, 0.80],   // Doi 4 (uoc luong - co the can cuon man)
   ],
 };
 
@@ -247,30 +247,38 @@ async function tapMarch(device) {
   return true;
 }
 
-// March 1 troop RANH. Uu tien: game da tu focus troop ranh (vien vang -> nut March VANG)
-// thi march luon (nhanh, khong can chon). Neu chua vang -> quet tung troop (co scroll
-// khi > 2 troop) tim troop ranh roi march. Tra ve true neu march duoc.
+// March 1 troop RANH — BO QUA troop dang ban.
+// Nut March VANG = troop dang chon RANH; XAM = dang ban (da verify tin cay).
+//  1) Game thuong tu focus troop ranh -> neu VANG thi march luon.
+//  2) Neu XAM (game focus nham troop ban) -> chon tung troop, chi march troop nao cho VANG.
+// Tra ve true neu march duoc, false neu khong con troop ranh.
 async function deployMarch(device, cfg = {}) {
-  // Fast path: game da focus dung troop ranh.
+  // 1) Troop game da focus co ranh khong?
   if (await marchGold(device, cfg)) {
-    if (await tapMarch(device)) { device.log.info('[deployMarch] march (game da focus troop ranh).'); return true; }
+    if (await tapMarch(device)) { device.log.info('[deployMarch] march (troop game da focus, ranh).'); return true; }
   }
-  // Fallback: quet cac troop hien co tim troop ranh (vang).
+  // 2) Chon tung troop, chi march troop RANH (nut vang). Troop ban (xam) -> bo qua.
   const rows = coords(cfg, 'troopRows');
-  const scrolled = [false];
   for (let idx = 0; idx < rows.length; idx += 1) {
-    // Troop 3,4 (idx>=2) co the nam duoi -> cuon danh sach troop len 1 lan.
-    if (idx >= 2 && !scrolled[0]) {
-      await device.swipePct(0.5, 0.6, 0.5, 0.35, 250);
-      await device.sleep(400);
-      scrolled[0] = true;
-    }
     await selectTroopRow(device, cfg, idx);
     if (await marchGold(device, cfg)) {
-      if (await tapMarch(device)) { device.log.info(`[deployMarch] march Doi ${idx + 1}.`); return true; }
+      if (await tapMarch(device)) { device.log.info(`[deployMarch] march Doi ${idx + 1} (ranh).`); return true; }
+    } else {
+      device.log.info(`[deployMarch] Doi ${idx + 1} dang ban -> bo qua.`);
     }
   }
-  device.log.info('[deployMarch] khong tim thay troop ranh -> khong march.');
+  device.log.info('[deployMarch] khong con troop ranh -> khong march.');
+  return false;
+}
+
+// March bang DUNG troop `troopIdx` (dung cho gather per-troop: moi troop gather loai rieng).
+// Chon dung troop do -> neu RANH (nut vang) thi march; BAN (xam) -> bo qua, tra ve false.
+async function deployMarchTroop(device, cfg, troopIdx) {
+  await selectTroopRow(device, cfg, troopIdx);
+  if (await marchGold(device, cfg)) {
+    if (await tapMarch(device)) { device.log.info(`[deployMarch] march Doi ${troopIdx + 1} (dung troop cau hinh).`); return true; }
+  }
+  device.log.info(`[deployMarch] Doi ${troopIdx + 1} dang ban -> bo qua.`);
   return false;
 }
 
@@ -291,5 +299,5 @@ async function hasBlocker(device, templateName) {
 module.exports = {
   sleep, WORLD, coords,
   ensureWorldMap, checkQueue, openSearch, selectTab, selectSlot, setLevel,
-  pressGo, openTargetCard, searchTarget, deployMarch, recover, hasBlocker,
+  pressGo, openTargetCard, searchTarget, deployMarch, deployMarchTroop, recover, hasBlocker,
 };

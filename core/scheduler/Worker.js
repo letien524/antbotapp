@@ -79,14 +79,18 @@ class Worker {
 
       if (due.length > 0) {
         try {
-          // CONG QUEUE: dem so troop dang hanh quan -> con o trong hay khong.
+          // CONG QUEUE (CHECK TRUOC MOI THAO TAC DOC TROOP): dem so troop dang hanh quan.
+          // Chi lam task khi DOC DUOC queue VA con o trong. Khong doc duoc / full -> cho luot moi.
           const { onMap, queue } = await checkQueue(this.device, cfg);
           if (queue) this.lastQueue = { ...queue, at: Date.now() };
           if (!onMap) {
             this.log.warn('[state] chua ve duoc world map -> cho, khong lam task.');
             for (const n of due) nextRun[n] = Date.now() + pollMs;
-          } else if (queue && queue.free <= 0) {
-            this.log.info(`[state] ${queue.used}/${queue.total} troop dang hanh quan -> het queue trong, cho ${Math.round(pollMs / 1000)}s.`);
+          } else if (!queue) {
+            this.log.warn('[state] khong doc duoc so queue -> cho, chua doc thong tin troop.');
+            for (const n of due) nextRun[n] = Date.now() + pollMs;
+          } else if (queue.free <= 0) {
+            this.log.info(`[state] ${queue.used}/${queue.total} troop dang hanh quan -> QUEUE DAY, cho ${Math.round(pollMs / 1000)}s.`);
             for (const n of due) nextRun[n] = Date.now() + pollMs;
           } else {
             // Con o trong -> lam task theo THU TU UU TIEN (due da xep hunt truoc, gather sau).

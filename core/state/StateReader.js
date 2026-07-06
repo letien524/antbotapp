@@ -15,8 +15,9 @@ const { makeLogger } = require('../logger');
 
 const log = makeLogger('state');
 
-// Vung 'X/Y' tren world map (ti le %, do tu 540x960). Ghi de qua cfg.world.queueRegion.
-const QUEUE_REGION = { x: 0.126, y: 0.142, w: 0.111, h: 0.034 };
+// Vung so 'X/Y' tren world map (ti le %, do tu 540x960) — CAN SAT chu (ben phai icon kiem),
+// bo icon + cham do de OCR khong nhieu. Ghi de qua cfg.world.queueRegion.
+const QUEUE_REGION = { x: 0.15, y: 0.145, w: 0.092, h: 0.032 };
 
 // Vung stamina 'X/100' cua tung trop tren man March Troops (ti le %, do tu 540x960).
 // Moi trop mot vung; account nay co 2 trop (Pro Troop, Troop I). Ghi de qua cfg.world.staminaRegions.
@@ -72,14 +73,16 @@ async function terminate() {
 }
 
 // OCR 1 vung so. mode:
+//  'white'     - chu TRANG tren nen toi/nhieu (queue 'X/Y' tren world): invert + threshold
+//                de tach chu khoi dia hinh -> on dinh nhat (da test 6/6 khi nen doi).
+//  'contrast'  - grayscale + contrast.
 //  'threshold' (mac dinh) - binarize, tot cho stamina 'X/100' (chu nho, nen sang manh).
-//  'contrast'  - grayscale + contrast, doc dau '/' cho queue 'X/Y' on dinh hon.
 async function ocrRegion(img, region, mode, area) {
   const [x, y, w, h] = regionPx(region, area);
   let crop = img.clone().crop(x, y, w, h);
-  crop = mode === 'contrast'
-    ? crop.scale(5).grayscale().contrast(0.6)
-    : crop.scale(8).grayscale().threshold({ max: 150 });
+  if (mode === 'white') crop = crop.scale(6).grayscale().invert().threshold({ max: 110 });
+  else if (mode === 'contrast') crop = crop.scale(5).grayscale().contrast(0.6);
+  else crop = crop.scale(8).grayscale().threshold({ max: 150 });
   const buf = await crop.getBufferAsync(Jimp.MIME_PNG);
   const worker = await getWorker();
   const { data } = await worker.recognize(buf);
@@ -98,7 +101,7 @@ function parseQueueText(text) {
 // Doc dem hanh quan tu 1 anh PNG (Buffer) — dung cho test (full anh, khong co game area).
 async function parseQueueFromPng(png, region = QUEUE_REGION) {
   const img = await Jimp.read(png);
-  return parseQueueText(await ocrRegion(img, region, 'contrast', fullArea(img)));
+  return await ocrQueueMulti(img, region, fullArea(img));
 }
 
 // Doc stamina 'X/100' cua tung trop tu man March Troops. Tra ve {troops:[...], best, min} hoac null.
@@ -167,12 +170,44 @@ async function readNumberRegion(device, region) {
   }
 }
 
+// Mask theo DO SANG (luminance): chu SANG (>thr) -> den, nen toi -> trang. OCR thich chu den
+// tren nen trang. Tach chu trang khoi nen dia hinh mau tot hon threshold thuong.
+function lumMask(crop, thr) {
+  const c = crop.clone();
+  c.scan(0, 0, c.bitmap.width, c.bitmap.height, function scanFn(x, y, idx) {
+    const r = this.bitmap.data[idx];
+    const g = this.bitmap.data[idx + 1];
+    const b = this.bitmap.data[idx + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const v = lum > thr ? 0 : 255;
+    this.bitmap.data[idx] = v;
+    this.bitmap.data[idx + 1] = v;
+    this.bitmap.data[idx + 2] = v;
+  });
+  return c;
+}
+
+// Doc 'X/Y' bang NHIEU nguong luminance, lay ket qua parse hop le DAU TIEN. Chu trang tren
+// nen ban do doi lien tuc -> 1 nguong khong du -> thu vai nguong cho chac.
+async function ocrQueueMulti(img, region, area) {
+  const [x, y, w, h] = regionPx(region, area);
+  const base = img.clone().crop(x, y, w, h).scale(6);
+  const worker = await getWorker();
+  for (const thr of [130, 115, 145, 100, 160]) {
+    const buf = await lumMask(base, thr).getBufferAsync(Jimp.MIME_PNG);
+    const { data } = await worker.recognize(buf);
+    const parsed = parseQueueText(data.text.trim());
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 // Chup man hinh device roi doc dem hanh quan. Tra ve null neu doc that bai.
 async function readMarchQueue(device, cfg = {}) {
   try {
     const region = (cfg.world && cfg.world.queueRegion) || QUEUE_REGION;
     const img = await Jimp.read(await device.capture());
-    return parseQueueText(await ocrRegion(img, region, 'contrast', areaOf(device, img)));
+    return await ocrQueueMulti(img, region, areaOf(device, img));
   } catch (e) {
     if (e && e.cancelled) throw e; // dung ngay khi bi huy
     device.log.warn(`[state] doc dem hanh quan loi: ${e.message}`);

@@ -242,7 +242,7 @@ let configMode = 'device'; // 'device' | 'global'
 // Do config vao form (dung chung cho device va global).
 function fillConfigForm(config) {
   document.getElementById('g_enabled').checked = !!config.gather.enabled;
-  gRowEls = buildGatherTypeRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.types);
+  gRowEls = buildTroopRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.troops);
 
   document.getElementById('h_enabled').checked = !!config.hunt.enabled;
   const hLevelSel = document.getElementById('h_level');
@@ -291,7 +291,7 @@ function readConfigForm() {
   return {
     gather: {
       enabled: document.getElementById('g_enabled').checked,
-      types: readGatherTypeRows(gRowEls),
+      troops: readTroopRows(gRowEls),
     },
     hunt: {
       enabled: document.getElementById('h_enabled').checked,

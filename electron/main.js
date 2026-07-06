@@ -186,13 +186,16 @@ ipcMain.handle('devices:troopTables', async () => {
     const queue = (st && st.lastQueue) || null;
     const status = (st && st.troopStatus) || {};
     const allIdle = queue && queue.used === 0; // queue 0 -> moi doi deu ranh
-    const troops = TROOPS.map((t) => ({
-      idx: t.index,
-      name: t.label,
-      gather: null, // gather gio theo LOAI tai nguyen (global), khong per-troop
-      hunt: null, // Auto Hunt cung global
-      status: allIdle ? null : (status[t.index] || null),
-    }));
+    const troops = TROOPS.map((t) => {
+      const g = (cfg.gather.troops && cfg.gather.troops[t.index]) || {};
+      return {
+        idx: t.index,
+        name: t.label,
+        gather: (cfg.gather.enabled && g.enabled !== false) ? { type: g.type, level: g.level } : null,
+        hunt: null, // Auto Hunt la global (khong theo troop)
+        status: allIdle ? null : (status[t.index] || null),
+      };
+    });
     out.push({
       serial: dev.serial, name: dev.name,
       online: online.has(dev.serial), running: procs.has(dev.serial), queue, troops,

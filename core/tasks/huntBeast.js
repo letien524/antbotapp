@@ -32,11 +32,16 @@ async function huntBeast(device, ctx = {}) {
     return { ok: false, reason: 'not_on_world_map' };
   }
 
-  // Check queue con o trong khong (auto hunt can co troop ranh).
+  // CHECK QUEUE TRUOC khi mo popup Auto Hunt (thao tac doc thong tin troop).
+  // Queue day hoac khong doc duoc -> bo qua ngay, cho luot moi (khong mo popup).
   const q = (ctx && 'queue' in ctx) ? ctx.queue : await readMarchQueue(device, cfg);
   if (q) log.info(`[state] hanh quan ${q.used}/${q.total} (con trong ${q.free})`);
+  if (!q || q.free <= 0) {
+    log.info('[huntBeast] queue day / chua doc duoc queue -> bo qua, cho luot moi.');
+    return { ok: false, reason: 'no_free_troop' };
+  }
 
-  // Mo popup Auto Hunt.
+  // Con o trong -> mo popup Auto Hunt.
   const state = await openAutoHunt(device);
   if (state === 'running') {
     log.info('[huntBeast] Auto Hunt dang chay -> cho luot sau.');
@@ -53,13 +58,6 @@ async function huntBeast(device, ctx = {}) {
     log.warn('[huntBeast] KHONG nhan dien duoc man Auto Hunt (template co the khong khop do phan giai may). Da luu anh: ~/.antbot/debug/autohunt-popup-*.png');
     await closeAutoHunt(device);
     return { ok: false, reason: 'no_setup' };
-  }
-
-  // Neu het o trong (khong con troop ranh) -> khong start.
-  if (q && q.free <= 0) {
-    log.info('[huntBeast] khong con troop ranh -> cho.');
-    await closeAutoHunt(device);
-    return { ok: false, reason: 'no_free_troop' };
   }
 
   // Xoay vong sang loai ke tiep. Level CHUNG cho moi loai (game tu cap neu vuot max).
