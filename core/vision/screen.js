@@ -100,7 +100,7 @@ async function locate(device, templateName, opts = {}) {
   let prep = tplPrepCache.get(key);
   if (!prep) { prep = prepareTemplate(tplImg, templateScale, SCALE); tplPrepCache.set(key, prep); }
 
-  const screenImg = image || await Jimp.read(await device.capture());
+  const screenImg = image || await device.captureImage();
 
   // ROI-FIRST: anchor co dinh -> quet vung nho truoc (nhanh). Thay -> tra ve luon.
   const roi = ANCHOR_ROIS[templateName];

@@ -130,7 +130,7 @@ function parseTimerBusy(text) {
 async function readTroopBusy(device, cfg = {}) {
   try {
     const regions = (cfg.world && cfg.world.troopBusyRegions) || TROOP_BUSY_REGIONS;
-    const img = await Jimp.read(await device.capture());
+    const img = await device.captureImage();
     const area = areaOf(device, img);
     const out = [];
     for (const r of regions) {
@@ -193,7 +193,7 @@ async function parseQueueFromPng(png, region = QUEUE_REGION) {
 async function readTroopStamina(device, cfg = {}) {
   try {
     const regions = (cfg.world && cfg.world.staminaRegions) || STAMINA_REGIONS;
-    const img = await Jimp.read(await device.capture());
+    const img = await device.captureImage();
     const area = areaOf(device, img);
     const troops = [];
     for (const r of regions) {
@@ -234,7 +234,7 @@ function isGoldButton(img, region, area) {
 async function isMarchEnabled(device, cfg = {}) {
   try {
     const region = (cfg.world && cfg.world.marchBtnRegion) || MARCH_BTN_REGION;
-    const img = await Jimp.read(await device.capture());
+    const img = await device.captureImage();
     return isGoldButton(img, region, areaOf(device, img));
   } catch (e) {
     if (e && e.cancelled) throw e; // dung ngay khi bi huy
@@ -245,7 +245,7 @@ async function isMarchEnabled(device, cfg = {}) {
 // Doc 1 con so tu 1 vung % (theo game area). Dung cho Hunting Times cua Auto Hunt.
 async function readNumberRegion(device, region) {
   try {
-    const img = await Jimp.read(await device.capture());
+    const img = await device.captureImage();
     const text = await ocrRegion(img, region, 'contrast', areaOf(device, img));
     const m = text.match(/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
@@ -291,7 +291,7 @@ async function ocrQueueMulti(img, region, area) {
 async function readMarchQueue(device, cfg = {}) {
   try {
     const region = (cfg.world && cfg.world.queueRegion) || QUEUE_REGION;
-    const img = await Jimp.read(await device.capture());
+    const img = await device.captureImage();
     return await ocrQueueMulti(img, region, areaOf(device, img));
   } catch (e) {
     if (e && e.cancelled) throw e; // dung ngay khi bi huy

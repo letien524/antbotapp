@@ -11,6 +11,28 @@ const Jimp = require('jimp');
 const { makeLogger } = require('../logger');
 const { CancelError } = require('../cancel');
 
+// Parse header cua `adb exec-out screencap` (RAW, khong -p): 3-4 uint32 LE (width,height,format
+// [,colorspace]) roi tiep la pixel RGBA. Tra ve {width,height,offset,pixels} neu HOP LE:
+//   - format == 1 (RGBA_8888) — byte order R,G,B,A khop bitmap Jimp.
+//   - do dai khop CHINH XAC w*h*4 (+header) -> loai bo may co stride padding (fallback PNG).
+// Nem loi neu bat thuong -> caller quay ve PNG. (Kiem tra cau truc chat nen an toan.)
+function parseRawHeader(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 16) throw new Error('raw qua ngan');
+  const width = buf.readUInt32LE(0);
+  const height = buf.readUInt32LE(4);
+  const format = buf.readUInt32LE(8);
+  if (width <= 0 || height <= 0 || width > 20000 || height > 20000) {
+    throw new Error(`raw kich thuoc la ${width}x${height}`);
+  }
+  const pixels = width * height * 4;
+  let offset;
+  if (buf.length - 16 === pixels) offset = 16;      // Android 9+ (them 1 uint32 colorspace)
+  else if (buf.length - 12 === pixels) offset = 12; // Android cu
+  else throw new Error(`raw do dai khong khop (len=${buf.length}, ${width}x${height})`);
+  if (format !== 1) throw new Error(`raw format ${format} != RGBA_8888`);
+  return { width, height, offset, pixels };
+}
+
 function run(args, { binary = false, timeout = 15000 } = {}) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -42,6 +64,9 @@ class AdbDevice {
     //   - He ANH chup (screencap px): crop OCR / so khop template -> imageArea(img).
     this.gameFrac = null; // { yFrac, hFrac }
     this.cancelToken = null; // Worker gan token; thao tac se huy ngay khi token.cancel().
+    // Backend chup: null=chua thu, true=dung RAW (nhanh, bo ma hoa PNG), false=dung PNG.
+    // Tu chon 1 lan/device o captureImage(). ANTBOT_NO_RAW=1 -> ep PNG (kill-switch).
+    this.rawOk = process.env.ANTBOT_NO_RAW ? false : null;
   }
 
   // Dat/doi ten than thien -> cap nhat luon scope cua logger (log hien ten may).
@@ -184,9 +209,34 @@ class AdbDevice {
     return run(this._args(['exec-out', 'screencap', '-p']), { binary: true });
   }
 
+  // Chup RAW (screencap khong -p): bo ma hoa PNG tren may -> nhanh hon. Tra ve Jimp.
+  // Nem loi neu header/do dai/format khong hop le -> caller quay ve PNG.
+  async captureRaw() {
+    this._check();
+    const buf = await run(this._args(['exec-out', 'screencap']), { binary: true });
+    const { width, height, offset, pixels } = parseRawHeader(buf);
+    const data = Buffer.allocUnsafe(pixels);
+    buf.copy(data, 0, offset, offset + pixels);
+    return new Promise((resolve, reject) => {
+      // eslint-disable-next-line no-new
+      new Jimp({ data, width, height }, (err, image) => (err ? reject(err) : resolve(image)));
+    });
+  }
+
   // Chup man hinh -> tra ve anh Jimp da decode (1 lan) de so NHIEU template tren cung khung hinh
   // ma khong chup + decode lai. Truyen qua locate(device, name, { image }).
+  // UU TIEN RAW (nhanh hon PNG). Tu chon 1 lan/device: raw hop le -> dung raw; loi -> PNG vinh vien.
   async captureImage() {
+    if (this.rawOk !== false) {
+      try {
+        const img = await this.captureRaw();
+        if (this.rawOk === null) { this.rawOk = true; this.log.info('[capture] dung RAW screencap (nhanh hon PNG).'); }
+        return img;
+      } catch (e) {
+        if (e && e.cancelled) throw e; // huy -> dung ngay
+        if (this.rawOk === null) { this.rawOk = false; this.log.info(`[capture] RAW khong dung duoc (${e.message}) -> dung PNG.`); }
+      }
+    }
     return Jimp.read(await this.capture());
   }
 
@@ -270,4 +320,4 @@ class AdbDevice {
   }
 }
 
-module.exports = { AdbDevice, adbRaw: run };
+module.exports = { AdbDevice, adbRaw: run, parseRawHeader };
