@@ -219,8 +219,8 @@ function defaultConfig() {
     // commonLevel = level CHUNG (UI): doi no -> keo moi troop ve cung level; doi level 1 troop
     // rieng thi commonLevel giu nguyen. Chi de luu/hien thi, khong dung truc tiep khi chay.
     gather: { enabled: true, commonLevel: 1, troops: defaultTroopRows() },
-    // Auto Hunt: tich chon loai + 1 level CHUNG cho tat ca (game tu cap neu vuot max).
-    hunt: { enabled: true, level: 1, types: defaultHuntTypes() },
+    // Auto Hunt da go khoi app -> mac dinh TAT (giu field cho tuong thich cau hinh cu).
+    hunt: { enabled: false, level: 1, types: defaultHuntTypes() },
     pollSec: 60, // chu ky kiem tra doi ranh de gui luot moi
     world: {},
   };
@@ -297,8 +297,8 @@ function accountForSerial(serial) {
 function tasksFromConfig(config) {
   const c = normalizeConfig(config);
   const t = [];
-  if (c.hunt.enabled) t.push('huntBeast'); // uu tien 1
-  if (c.gather.enabled) t.push('collectResources'); // uu tien 2
+  // Auto Hunt da go khoi app -> khong len lich huntBeast nua (chi con thu thap tai nguyen).
+  if (c.gather.enabled) t.push('collectResources');
   return t;
 }
 
