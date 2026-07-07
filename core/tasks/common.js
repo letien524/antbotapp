@@ -368,6 +368,20 @@ async function deployMarch(device, cfg = {}) {
   return false;
 }
 
+// March doi GAME DA TU CHON (khong chon hang cu the). Dung cho doi 3/4 tren may nhieu doi:
+// man March Troops chi hien 2 doi dau, doi 3/4 nam duoi/can cuon nen KHONG dinh vi duoc hang.
+// Khi mo March Troops qua Gather, game tu focus troop RANH dau tien -> chi can kiem nut March
+// VANG (troop focus dang ranh) roi march. XAM -> khong con doi ranh, bo qua. An toan: KHONG tap
+// mu toa do hang, KHONG bao gio march doi dang ban. Caller phai bao dam cac doi tren deu ban
+// truoc khi goi (de doi game tu chon chac chan la doi 3+).
+async function deployMarchAuto(device, cfg = {}) {
+  if (await marchGold(device, cfg)) {
+    if (await tapMarch(device, cfg)) { device.log.info('[deployMarch] march doi game tu chon (ranh).'); return true; }
+  }
+  device.log.info('[deployMarch] doi game tu chon dang ban / khong con doi ranh -> bo qua.');
+  return false;
+}
+
 // March bang DUNG troop `troopIdx` (dung cho gather per-troop: moi troop gather loai rieng).
 // Chon dung troop do -> neu RANH (nut vang) thi march; BAN (xam) -> bo qua, tra ve false.
 async function deployMarchTroop(device, cfg, troopIdx) {
@@ -396,6 +410,6 @@ async function hasBlocker(device, templateName) {
 module.exports = {
   sleep, WORLD, coords,
   ensureWorldMap, checkQueue, openSearch, selectTab, selectSlot, setLevel,
-  pressGo, openTargetCard, searchTarget, deployMarch, deployMarchTroop, recover, hasBlocker,
+  pressGo, openTargetCard, searchTarget, deployMarch, deployMarchTroop, deployMarchAuto, recover, hasBlocker,
   openMarchOverview, readTroopStatuses, searchGatherGo, deployGatherFixed,
 };
