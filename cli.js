@@ -59,8 +59,9 @@ async function main() {
 
   if (cmd === 'run') {
     const d = await pickDevice(dm, arg);
-    const size = await d.refreshSize().catch(() => null);
     const account = accountForSerial(d.serial);
+    if (account && account.name) d.setName(account.name); // log hien ten may
+    const size = await d.refreshSize().catch(() => null);
     console.log(`Chay task tren ${d.serial} (${account ? account.name : 'khong co config'})${size ? ` [${size.width}x${size.height}]` : ''}. Ctrl+C de dung.`);
     const worker = new Worker(d, { account });
     process.on('SIGINT', () => {

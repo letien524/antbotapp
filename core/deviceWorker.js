@@ -27,8 +27,9 @@ function send(msg) {
 // Chuyen moi log cua process nay ra parent (parent forward ra UI).
 logEmitter.on('log', (entry) => send({ type: 'log', entry }));
 
-const device = new AdbDevice(serial);
 const account = accountForSerial(serial);
+const deviceName = (account && account.name) || serial;
+const device = new AdbDevice(serial, deviceName);
 const worker = new Worker(device, { account });
 
 // Gui trang thai (troop + queue) ra parent dinh ky cho bang status tren UI.
@@ -51,7 +52,7 @@ async function shutdown(opts = {}) {
         device.cancelToken = new CancelToken(); // token moi (khong bi huy) cho buoc don dep
         if (await ensureWorldMap(device, cfg)) {
           const stopped = await stopIfRunning(device);
-          if (stopped) send({ type: 'log', entry: { level: 'INFO', scope: `worker:${serial}`, line: '[stop] Da dung Auto Hunt trong game.' } });
+          if (stopped) send({ type: 'log', entry: { level: 'INFO', scope: `worker:${deviceName}`, line: '[stop] Da dung Auto Hunt trong game.' } });
         }
       }
     } catch (e) { /* ignore loi don dep */ }
@@ -72,6 +73,6 @@ process.on('SIGTERM', shutdown);
     send({ type: 'status', troopStatus: {}, lastQueue: null });
     await worker.start();
   } catch (e) {
-    send({ type: 'log', entry: { level: 'ERROR', scope: `worker:${serial}`, line: `Worker khoi dong loi: ${e.message}` } });
+    send({ type: 'log', entry: { level: 'ERROR', scope: `worker:${deviceName}`, line: `Worker khoi dong loi: ${e.message}` } });
   }
 })();

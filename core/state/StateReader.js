@@ -26,6 +26,15 @@ const STAMINA_REGIONS = [
   { x: 0.567, y: 0.610, w: 0.119, h: 0.027 },
 ];
 
+// Vung TIMER hoat dong tren avatar tung trop (man March Troops). Trop BAN hien dong ho
+// "00:04:51" (gathering) / "00:00:58" (marching) tren avatar -> co >=4 chu so. Trop RANH ->
+// vung trong (0 chu so). Vung NHAM DONG DONG HO (mong) de tranh vanh tron avatar bi doc nham
+// thanh chu so. Do tu 540x960; ghi de qua cfg.world.troopBusyRegions.
+const TROOP_BUSY_REGIONS = [
+  { x: 0.085, y: 0.430, w: 0.25, h: 0.034 }, // Pro Troop
+  { x: 0.085, y: 0.668, w: 0.25, h: 0.034 }, // Troop I
+];
+
 // Moi may la 1 process rieng -> 1 OCR worker/process la du (khong co canh tranh trong process).
 const POOL_SIZE = 1;
 let pool = null;
@@ -64,12 +73,86 @@ function fullArea(img) {
 // Vung nut March (goc phai duoi man March Troops, ti le %, do tu 540x960).
 const MARCH_BTN_REGION = { x: 0.546, y: 0.922, w: 0.380, h: 0.050 };
 
+// Worker RIENG cho OCR dong ho hoat dong (whitelist them ':'). Tach khoi worker chinh
+// (whitelist '0123456789/') de KHONG lam hong OCR queue 'X/Y'. psm 6 = doc khoi nhieu dong.
+let timerWorker = null;
+async function getTimerWorker() {
+  if (!timerWorker) {
+    timerWorker = (async () => {
+      const w = await Tesseract.createWorker('eng');
+      await w.setParameters({ tessedit_char_whitelist: '0123456789:', tessedit_pageseg_mode: '6' });
+      return w;
+    })();
+  }
+  return timerWorker;
+}
+
 async function terminate() {
   if (pool) {
     const workers = await Promise.all(pool);
     await Promise.all(workers.map((w) => w.terminate()));
     pool = null;
   }
+  if (timerWorker) {
+    try { (await timerWorker).terminate(); } catch (e) { /* bo qua */ }
+    timerWorker = null;
+  }
+}
+
+// OCR vung timer: chu SANG tren nen toi -> invert roi thu VAI nguong (chu doi do sang theo
+// nen avatar). Lay ket qua NHIEU CHU SO nhat (dong ho hh:mm:ss). Dau ':' hay bi mat nen KHONG
+// dua vao ':' de ket luan — dem so chu so moi tin cay (xem parseTimerBusy).
+async function ocrTimerRegion(img, region, area) {
+  const [x, y, w, h] = regionPx(region, area);
+  const base = img.clone().crop(x, y, w, h).scale(6).grayscale().invert();
+  const worker = await getTimerWorker();
+  let best = '';
+  const digitCount = (s) => (String(s).match(/\d/g) || []).length;
+  for (const thr of [150, 130, 170]) {
+    const buf = await base.clone().threshold({ max: thr }).getBufferAsync(Jimp.MIME_PNG);
+    const { data } = await worker.recognize(buf);
+    const t = data.text.trim();
+    if (digitCount(t) > digitCount(best)) best = t;
+  }
+  return best;
+}
+
+// Trop BAN neu vung timer co du chu so cua 1 dong ho (mm:ss / hh:mm:ss -> >=4 chu so).
+// Trop RANH -> vung trong (0 chu so). Dem chu so on dinh hon match ':' (OCR hay rot ':').
+function parseTimerBusy(text) {
+  return (String(text || '').match(/\d/g) || []).length >= 4;
+}
+
+// Doc trang thai BAN/RANH tung trop tu man March Troops. Tra ve mang [{busy,text}] theo
+// index trop, hoac null neu chup/OCR that bai (de caller fallback).
+async function readTroopBusy(device, cfg = {}) {
+  try {
+    const regions = (cfg.world && cfg.world.troopBusyRegions) || TROOP_BUSY_REGIONS;
+    const img = await Jimp.read(await device.capture());
+    const area = areaOf(device, img);
+    const out = [];
+    for (const r of regions) {
+      const text = await ocrTimerRegion(img, r, area);
+      out.push({ busy: parseTimerBusy(text), text });
+    }
+    return out;
+  } catch (e) {
+    if (e && e.cancelled) throw e; // dung ngay khi bi huy
+    device.log.warn(`[state] doc trang thai troop loi: ${e.message}`);
+    return null;
+  }
+}
+
+// Test OFFLINE: doc busy/idle tung trop tu 1 anh PNG (full anh, khong co game area).
+async function parseTroopBusyFromPng(png, regions = TROOP_BUSY_REGIONS) {
+  const img = await Jimp.read(png);
+  const area = fullArea(img);
+  const out = [];
+  for (const r of regions) {
+    const text = await ocrTimerRegion(img, r, area);
+    out.push({ busy: parseTimerBusy(text), text });
+  }
+  return out;
 }
 
 // OCR 1 vung so. mode:
@@ -217,6 +300,6 @@ async function readMarchQueue(device, cfg = {}) {
 
 module.exports = {
   readMarchQueue, parseQueueFromPng, readTroopStamina, isMarchEnabled, isGoldButton,
-  readNumberRegion,
-  terminate, QUEUE_REGION, STAMINA_REGIONS, MARCH_BTN_REGION,
+  readNumberRegion, readTroopBusy, parseTroopBusyFromPng,
+  terminate, QUEUE_REGION, STAMINA_REGIONS, MARCH_BTN_REGION, TROOP_BUSY_REGIONS,
 };

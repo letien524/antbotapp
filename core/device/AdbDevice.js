@@ -31,9 +31,10 @@ function run(args, { binary = false, timeout = 15000 } = {}) {
 }
 
 class AdbDevice {
-  constructor(serial) {
+  constructor(serial, name) {
     this.serial = serial;
-    this.log = makeLogger(`dev:${serial}`);
+    this.name = name || serial; // ten than thien (hien trong log); mac dinh = serial
+    this.log = makeLogger(`dev:${this.name}`);
     this.size = null; // { width, height } - cache do phan giai device (theo wm size = he TAP)
     // Vung GAME thuc luu dang PHAN TRAM chieu cao (vien den chi o TREN/DUOI, x=0 w=1).
     // Luu % de dung dung cho CA HAI he toa do (thuong bang nhau, mot so may khac nhau):
@@ -41,6 +42,14 @@ class AdbDevice {
     //   - He ANH chup (screencap px): crop OCR / so khop template -> imageArea(img).
     this.gameFrac = null; // { yFrac, hFrac }
     this.cancelToken = null; // Worker gan token; thao tac se huy ngay khi token.cancel().
+  }
+
+  // Dat/doi ten than thien -> cap nhat luon scope cua logger (log hien ten may).
+  setName(name) {
+    if (name && name !== this.name) {
+      this.name = name;
+      this.log = makeLogger(`dev:${this.name}`);
+    }
   }
 
   // Vung game theo HE TOA DO TAP (wm size). Dung cho pctToPx (tap) va templateScale.

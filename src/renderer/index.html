@@ -63,7 +63,10 @@
 
   .status { flex: 1; overflow: auto; background: #08090b; padding: 12px; }
   .statdev { border: 1px solid #262c36; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
-  .statdev .dhead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #12161c; font-size: 13px; font-weight: 600; }
+  .statdev .dhead { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #12161c; font-size: 13px; font-weight: 600; cursor: pointer; user-select: none; }
+  .statdev .dhead:hover { background: #171c24; }
+  .statdev .caret { font-size: 10px; color: #8b949e; width: 12px; display: inline-block; text-align: center; }
+  .statdev .dbody.collapsed { display: none; }
   .statdev .qbadge { margin-left: auto; font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 6px; background: #30363d; }
   .statdev .qbadge.full { background: #6e2224; } .statdev .qbadge.free { background: #196c2e; }
   table.troops { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -142,6 +145,7 @@
           <label for="g_enabled">② 🌿 Thu thap tai nguyen — cau hinh tung troop (uu tien 2)</label>
         </div>
         <div style="font-size:10px;color:#8b949e;margin-bottom:6px">Moi troop gather loai tai nguyen + level rieng. Troop dang ban se bo qua.</div>
+        <div class="field" style="max-width:260px;margin-bottom:8px"><span>Level chung (doi -> keo moi troop ve cung level)</span><select id="g_common_level"></select></div>
         <div class="trhead"><span>Bat</span><span>Troop</span><span>Loai tai nguyen</span><span>Level</span></div>
         <div class="trows" id="g_rows"></div>
       </div>

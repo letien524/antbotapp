@@ -7,12 +7,14 @@
 // Tat ca toa do la ti le % man hinh, do tu anh 540x960. Co the ghi de qua config.world.
 
 const { tapTemplate, waitFor, locate } = require('../vision/screen');
-const { isMarchEnabled, readMarchQueue } = require('../state/StateReader');
+const { isMarchEnabled, readMarchQueue, readTroopBusy } = require('../state/StateReader');
+const { getCachedLevel, setCachedLevel } = require('../state/levelCache');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Toa do mac dinh cac nut CO DINH tren world map + panel Search.
 const WORLD = {
+  queueIcon: [0.068, 0.158],   // icon hanh quan (kiem cheo 'X/Y') goc trai tren -> mo March Troops
   searchBtn: [0.067, 0.656],   // kinh lup goc trai duoi -> mo panel Search
   tabWild: [0.170, 0.953],     // tab Da thu (beetle)
   tabResource: [0.500, 0.953], // tab Tai nguyen (la)
@@ -76,13 +78,13 @@ async function ensureWorldMap(device, cfg = {}, { maxTries = 6 } = {}) {
     if (toWorld) {
       device.log.info('[ensureWorldMap] dang trong to -> tap nut World de ra ban do.');
       await device.tap(toWorld.x, toWorld.y);
-      await device.sleep(1700);
+      await device.sleep(1300);
       continue;
     }
     // Con lai: overlay/card/popup che ban do -> BACK de dong.
     device.log.info('[ensureWorldMap] co overlay -> BACK de dong.');
     await device.keyevent(4);
-    await device.sleep(800);
+    await device.sleep(550);
   }
   const ok = await isOnWorldMap(device);
   if (!ok) device.log.warn('[ensureWorldMap] khong ve duoc world map.');
@@ -109,11 +111,11 @@ async function openSearch(device, cfg = {}) {
   const [x, y] = coords(cfg, 'searchBtn');
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await device.tapPct(x, y);
-    await device.sleep(850);
+    await device.sleep(420);
     if (await isSearchPanelOpen(device)) return true;
     device.log.warn('[openSearch] panel Search chua mo -> BACK va thu lai.');
     await device.keyevent(4);
-    await device.sleep(600);
+    await device.sleep(350);
   }
   return false;
 }
@@ -122,7 +124,7 @@ async function openSearch(device, cfg = {}) {
 async function selectTab(device, cfg, which) {
   const [x, y] = coords(cfg, which === 'resource' ? 'tabResource' : 'tabWild');
   await device.tapPct(x, y);
-  await device.sleep(700);
+  await device.sleep(300);
 }
 
 // Carousel loai (o SEARCH): 3 item, item GIUA = dang chon.
@@ -135,19 +137,19 @@ async function selectSlot(device, cfg, index = 0, cur = null) {
   let pos = cur;
   if (pos == null) {
     // Chua biet -> reset ve dau danh sach.
-    for (let i = 0; i < 6; i += 1) { await device.swipePct(0.2, y, 0.85, y, 280); await device.sleep(200); }
-    await device.sleep(150);
+    for (let i = 0; i < 6; i += 1) { await device.swipePct(0.2, y, 0.85, y, 200); await device.sleep(110); }
+    await device.sleep(90);
     pos = 0;
   }
   const delta = index - pos;
   if (delta > 0) {
-    for (let i = 0; i < delta; i += 1) { await device.swipePct(0.68, y, 0.337, y, 280); await device.sleep(320); } // next
+    for (let i = 0; i < delta; i += 1) { await device.swipePct(0.68, y, 0.337, y, 200); await device.sleep(180); } // next
   } else if (delta < 0) {
-    for (let i = 0; i < -delta; i += 1) { await device.swipePct(0.337, y, 0.68, y, 280); await device.sleep(320); } // prev
+    for (let i = 0; i < -delta; i += 1) { await device.swipePct(0.337, y, 0.68, y, 200); await device.sleep(180); } // prev
   }
-  await device.sleep(120);
+  await device.sleep(80);
   await device.tapPct(0.5, y); // tap giua de chon
-  await device.sleep(250);
+  await device.sleep(160);
   return index;
 }
 
@@ -165,7 +167,7 @@ async function setLevel(device, cfg, plusClicks = 0) {
 async function pressGo(device, cfg) {
   const [x, y] = coords(cfg, 'goBtn');
   await device.tapPct(x, y);
-  await device.sleep(1200); // cho ban do di chuyen
+  await device.sleep(700); // cho ban do di chuyen
 }
 
 // Sau khi Go, tap muc tieu (da thu / o tai nguyen) gan tam de mo card, roi tim nut
@@ -179,7 +181,7 @@ async function openTargetCard(device, cfg, actionTemplate, { threshold = 0.7 } =
   const taps = coords(cfg, 'targetTaps') || WORLD.targetTaps;
   for (const [cx, cy] of taps) {
     await device.tapPct(cx, cy);
-    await device.sleep(650);
+    await device.sleep(320);
     hit = await locate(device, actionTemplate, { threshold });
     if (hit) return hit;
   }
@@ -199,16 +201,23 @@ async function searchTarget(device, cfg, opts) {
     await selectTab(device, cfg, tab); // luon chon tab (may chay ca hunt lan gather)
     if (i === 0) {
       const last = device._lastSearch[tab];
-      const typeChanged = !last || last.type !== type;
-      if (typeChanged) {
-        // Vi tri hien tai = loai lan truoc (game nho lua chon). Di chuyen bang so buoc toi thieu.
+      // 1) VI TRI carousel: keo toi dung loai bang so buoc toi thieu (nho vi tri lan truoc).
+      if (!last || last.type !== type) {
         const curPos = last ? last.type : null;
         await selectSlot(device, cfg, type, curPos);
-        await setLevel(device, cfg, plusClicks);
-      } else if (last.level !== level) {
-        await setLevel(device, cfg, plusClicks); // cung loai, chi doi level
       }
-      // Nho lai: loai (= vi tri carousel) + level -> lan sau tinh delta, va cache game.
+      // 2) LEVEL: dua vao GAME CACHE (game nho level THEO TUNG LOAI). Ta mirror cache ra DIA
+      //    theo serial+loai -> chi set level LAN DAU moi loai (hoac khi user doi level), cac lan
+      //    sau BO QUA hoan toan (dung spec: da setup level tu dau, khong set lai).
+      const cacheKey = `${tab}_${type}`;
+      const cached = getCachedLevel(device.serial, cacheKey);
+      if (cached !== level) {
+        await setLevel(device, cfg, plusClicks);
+        setCachedLevel(device.serial, cacheKey, level);
+        device.log.info(`[search] loai ${type + 1}: set level -> lv${level} (luu cache).`);
+      } else {
+        device.log.info(`[search] loai ${type + 1}: da lv${level} tu cache -> BO QUA set level.`);
+      }
       device._lastSearch[tab] = { type, level };
     }
     await pressGo(device, cfg);
@@ -222,28 +231,108 @@ async function searchTarget(device, cfg, opts) {
   return null;
 }
 
+// GATHER NHANH — chi mo Search + chon loai + Go (KHONG doc card). Tra ve true neu mo duoc panel.
+// Dung cho luong tap-toa-do-co-dinh: sau Go, muc tieu nam giua -> deployGatherFixed lo phan con lai.
+async function searchGatherGo(device, cfg, { type, level, plusClicks }) {
+  if (!device._lastSearch) device._lastSearch = {};
+  if (!(await openSearch(device, cfg))) return false;
+  await selectTab(device, cfg, 'resource');
+  const last = device._lastSearch.resource;
+  // Vi tri carousel: keo toi dung loai bang so buoc toi thieu (nho vi tri lan truoc).
+  if (!last || last.type !== type) {
+    await selectSlot(device, cfg, type, last ? last.type : null);
+  }
+  // Level qua GAME CACHE: chi set lan dau moi loai (hoac khi user doi level), sau do bo qua.
+  const cacheKey = `resource_${type}`;
+  if (getCachedLevel(device.serial, cacheKey) !== level) {
+    await setLevel(device, cfg, plusClicks);
+    setCachedLevel(device.serial, cacheKey, level);
+    device.log.info(`[search] loai ${type + 1}: set level -> lv${level} (luu cache).`);
+  } else {
+    device.log.info(`[search] loai ${type + 1}: da lv${level} tu cache -> BO QUA set level.`);
+  }
+  device._lastSearch.resource = { type, level };
+  await pressGo(device, cfg);
+  return true;
+}
+
+// Sau khi Go bay toi tai nguyen: tap muc tieu mo card -> CHI 1 LAN CHUP xac nhan nut Gather that
+// su hien (bat case "Targets not found"/o bi chiem). Neu co -> tu do CHI TAP TOA DO CO DINH:
+// Gather (dung vi tri template tim duoc) -> chon DUNG troop -> March. Doi da duoc loc RANH truoc.
+// Tra ve: true = da day quan; false = khong co tai nguyen (bo qua, KHONG tinh la da gui).
+async function deployGatherFixed(device, cfg, troopIdx) {
+  const [cx, cy] = coords(cfg, 'center');
+  await device.tapPct(cx, cy);        // tap muc tieu giua man -> mo card tai nguyen
+  await device.sleep(450);
+  // MOT lan check anh duy nhat: nut Gather co hien khong (card mo & o con trong)?
+  const hit = await locate(device, 'btn_gather', { threshold: 0.7 });
+  if (!hit) {
+    device.log.info('[gather] khong thay nut Gather (targets not found / o bi chiem) -> bo qua.');
+    return false;
+  }
+  await device.tap(hit.x, hit.y);     // nut Gather (vi tri template)
+  await device.sleep(650);            // cho man March Troops mo
+  await selectTroopRow(device, cfg, troopIdx); // chon dung troop (tap co dinh, sleep 400 ben trong)
+  const [mx, my] = coords(cfg, 'marchBtn');
+  await device.tapPct(mx, my);        // nut March -> day troop ra bai (tap co dinh)
+  await device.sleep(650);
+  return true;
+}
+
+// Mo man March Troops TRUC TIEP tu world map (tap icon hanh quan goc trai tren) de doc
+// trang thai ranh/ban tung troop TRUOC khi di tim tai nguyen. Xac nhan da mo bang nut March.
+// Tra ve true/false. (Toa do icon co the khac tuy game -> ghi de cfg.world.queueIcon.)
+async function openMarchOverview(device, cfg = {}) {
+  const [x, y] = coords(cfg, 'queueIcon');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await device.tapPct(x, y);
+    await device.sleep(700);
+    if (await locate(device, 'btn_march_deploy', { threshold: 0.7 })) return true;
+    device.log.warn('[openMarchOverview] chua thay man March Troops -> thu lai.');
+    await device.sleep(400);
+  }
+  return false;
+}
+
+// Doc TRUOC trang thai tung troop tu man March Troops (mo tu world map). Tra ve mang
+// [{busy}] theo index troop, hoac null neu khong mo/doc duoc -> caller FALLBACK luong cu.
+// Doc xong BACK ve world map de tiep tuc buoc tim tai nguyen.
+async function readTroopStatuses(device, cfg = {}) {
+  if (!(await openMarchOverview(device, cfg))) {
+    device.log.info('[march] khong mo duoc March Troops truc tiep -> fallback luong cu.');
+    return null;
+  }
+  const busy = await readTroopBusy(device, cfg);
+  await recover(device, 1); // BACK ve world map
+  if (!busy) { device.log.info('[march] doc trang thai troop that bai -> fallback.'); return null; }
+  const parts = busy.map((b, i) => `Doi${i + 1}:${b.busy ? 'BAN' : 'ranh'}`);
+  device.log.info(`[march] trang thai truoc khi tim tai nguyen -> ${parts.join(' ')}`);
+  return busy;
+}
+
 // Chon 1 DOI (troop row) tren man March Troops bang cach tap vao hang cua doi do.
 async function selectTroopRow(device, cfg, index) {
   const rows = coords(cfg, 'troopRows');
   const pos = rows[index];
   if (!pos) return false;
   await device.tapPct(pos[0], pos[1]);
-  await device.sleep(800); // cho nut March cap nhat trang thai/mau
+  await device.sleep(400); // cho nut March cap nhat trang thai/mau
   return true;
 }
 
 // Nut March co dang VANG khong; neu thay XAM thi re-check 1 lan (chong race luc chuyen doi).
 async function marchGold(device, cfg) {
   if (await isMarchEnabled(device, cfg)) return true;
-  await device.sleep(500);
+  await device.sleep(250);
   return isMarchEnabled(device, cfg);
 }
 
-async function tapMarch(device) {
-  const hit = await locate(device, 'btn_march_deploy', { threshold: 0.7 });
-  if (!hit) return false;
-  await device.tap(hit.x, hit.y);
-  await device.sleep(1200);
+// Bam nut March. KHONG locate lai (tiet kiem 1 lan chup): marchGold da xac nhan nut VANG ton tai
+// o vung marchBtnRegion -> tap thang toa do co dinh marchBtn (nut o thanh duoi, vi tri co dinh).
+async function tapMarch(device, cfg = {}) {
+  const [x, y] = coords(cfg, 'marchBtn');
+  await device.tapPct(x, y);
+  await device.sleep(700);
   return true;
 }
 
@@ -255,14 +344,14 @@ async function tapMarch(device) {
 async function deployMarch(device, cfg = {}) {
   // 1) Troop game da focus co ranh khong?
   if (await marchGold(device, cfg)) {
-    if (await tapMarch(device)) { device.log.info('[deployMarch] march (troop game da focus, ranh).'); return true; }
+    if (await tapMarch(device, cfg)) { device.log.info('[deployMarch] march (troop game da focus, ranh).'); return true; }
   }
   // 2) Chon tung troop, chi march troop RANH (nut vang). Troop ban (xam) -> bo qua.
   const rows = coords(cfg, 'troopRows');
   for (let idx = 0; idx < rows.length; idx += 1) {
     await selectTroopRow(device, cfg, idx);
     if (await marchGold(device, cfg)) {
-      if (await tapMarch(device)) { device.log.info(`[deployMarch] march Doi ${idx + 1} (ranh).`); return true; }
+      if (await tapMarch(device, cfg)) { device.log.info(`[deployMarch] march Doi ${idx + 1} (ranh).`); return true; }
     } else {
       device.log.info(`[deployMarch] Doi ${idx + 1} dang ban -> bo qua.`);
     }
@@ -276,7 +365,7 @@ async function deployMarch(device, cfg = {}) {
 async function deployMarchTroop(device, cfg, troopIdx) {
   await selectTroopRow(device, cfg, troopIdx);
   if (await marchGold(device, cfg)) {
-    if (await tapMarch(device)) { device.log.info(`[deployMarch] march Doi ${troopIdx + 1} (dung troop cau hinh).`); return true; }
+    if (await tapMarch(device, cfg)) { device.log.info(`[deployMarch] march Doi ${troopIdx + 1} (dung troop cau hinh).`); return true; }
   }
   device.log.info(`[deployMarch] Doi ${troopIdx + 1} dang ban -> bo qua.`);
   return false;
@@ -286,7 +375,7 @@ async function deployMarchTroop(device, cfg, troopIdx) {
 async function recover(device, times = 2) {
   for (let i = 0; i < times; i += 1) {
     await device.keyevent(4);
-    await device.sleep(500);
+    await device.sleep(350);
   }
 }
 
@@ -300,4 +389,5 @@ module.exports = {
   sleep, WORLD, coords,
   ensureWorldMap, checkQueue, openSearch, selectTab, selectSlot, setLevel,
   pressGo, openTargetCard, searchTarget, deployMarch, deployMarchTroop, recover, hasBlocker,
+  openMarchOverview, readTroopStatuses, searchGatherGo, deployGatherFixed,
 };

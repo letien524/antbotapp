@@ -29,7 +29,9 @@ class Worker {
     this.token = null; // token huy cho luot hien tai
     this.troopStatus = {}; // idx -> { task, type, level, at } : lan gui gan nhat cua tung doi
     this.lastQueue = null; // queue doc gan nhat (dung cho bang trang thai, khoi OCR lai)
-    this.log = makeLogger(`worker:${device.serial}`);
+    // Ten than thien tu account (neu co) -> hien trong log thay vi serial kho doc.
+    if (account && account.name) device.setName(account.name);
+    this.log = makeLogger(`worker:${device.name || device.serial}`);
   }
 
   // Khoang cach den lan chay ke tiep cua 1 task (ms), tuy ket qua:

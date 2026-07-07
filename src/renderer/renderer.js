@@ -8,6 +8,7 @@ const configTitleEl = document.getElementById('configTitle');
 
 let configSerial = null;   // serial dang cau hinh
 let meta = { huntTypes: [], resourceTypes: [], troops: [] };
+const expandedDevices = new Set(); // serial cac may dang MO chi tiet (mac dinh dong het)
 
 // ---- Devices (danh sach DA THEM) ----
 async function refresh() {
@@ -106,6 +107,7 @@ async function renderStatus() {
     const q = dev.queue;
     const qcls = q ? (q.free <= 0 ? 'full' : 'free') : '';
     const qtext = q ? `${q.used}/${q.total}` : (dev.online ? '—' : 'offline');
+    const expanded = expandedDevices.has(dev.serial); // mac dinh DONG (khong co trong set)
     const box = document.createElement('div');
     box.className = 'statdev';
     const rows = dev.troops.map((t) => `
@@ -114,16 +116,28 @@ async function renderStatus() {
         <td>${jobLabel(t)}</td>
         <td>${dev.online ? statusLabel(t) : '<span class="stoff">offline</span>'}</td>
       </tr>`).join('');
+    // dhead = thong tin CO BAN (luon hien): ten + trang thai + queue. Bam de xo chi tiet.
     box.innerHTML = `
-      <div class="dhead">${dev.name}
+      <div class="dhead" role="button" title="Bam de xem/an chi tiet troop">
+        <span class="caret">${expanded ? '▼' : '▶'}</span>${dev.name}
         <span class="badge ${dev.online ? 'on' : 'off'}">${dev.online ? 'online' : 'offline'}</span>
         ${dev.running ? '<span class="badge on">RUNNING</span>' : ''}
         <span class="qbadge ${qcls}">Queue ${qtext}</span>
       </div>
-      <table class="troops">
-        <tr><th>Doi</th><th>Nhiem vu</th><th>Trang thai</th></tr>
-        ${rows}
-      </table>`;
+      <div class="dbody${expanded ? '' : ' collapsed'}">
+        <table class="troops">
+          <tr><th>Doi</th><th>Nhiem vu</th><th>Trang thai</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+    const head = box.querySelector('.dhead');
+    const body = box.querySelector('.dbody');
+    const caret = box.querySelector('.caret');
+    head.onclick = () => {
+      const isExpanded = body.classList.toggle('collapsed') === false; // sau toggle: khong con 'collapsed' -> dang mo
+      if (isExpanded) expandedDevices.add(dev.serial); else expandedDevices.delete(dev.serial);
+      caret.textContent = isExpanded ? '▼' : '▶';
+    };
     statusEl.appendChild(box);
   }
 }
@@ -244,6 +258,16 @@ function fillConfigForm(config) {
   document.getElementById('g_enabled').checked = !!config.gather.enabled;
   gRowEls = buildTroopRows(document.getElementById('g_rows'), meta.resourceTypes, config.gather.troops);
 
+  // Level CHUNG: doi -> keo MOI troop ve cung level. Doi level 1 troop rieng -> o chung GIU NGUYEN.
+  const gCommon = document.getElementById('g_common_level');
+  if (!gCommon.options.length) {
+    for (let lv = 1; lv <= 15; lv += 1) { const o = document.createElement('option'); o.value = lv; o.textContent = 'Lv ' + lv; gCommon.appendChild(o); }
+  }
+  gCommon.value = config.gather.commonLevel || 1;
+  gCommon.onchange = () => {
+    gRowEls.forEach((e) => fillLevelSelect(e.levelSel, meta.resourceTypes, e.typeSel.value, gCommon.value));
+  };
+
   document.getElementById('h_enabled').checked = !!config.hunt.enabled;
   const hLevelSel = document.getElementById('h_level');
   if (!hLevelSel.options.length) {
@@ -291,6 +315,7 @@ function readConfigForm() {
   return {
     gather: {
       enabled: document.getElementById('g_enabled').checked,
+      commonLevel: Math.max(1, num('g_common_level', 1)),
       troops: readTroopRows(gRowEls),
     },
     hunt: {

@@ -216,7 +216,9 @@ function defaultGatherTypes() {
 function defaultConfig() {
   return {
     // Gather THEO TUNG TROOP: moi troop chon loai tai nguyen + level rieng.
-    gather: { enabled: true, troops: defaultTroopRows() },
+    // commonLevel = level CHUNG (UI): doi no -> keo moi troop ve cung level; doi level 1 troop
+    // rieng thi commonLevel giu nguyen. Chi de luu/hien thi, khong dung truc tiep khi chay.
+    gather: { enabled: true, commonLevel: 1, troops: defaultTroopRows() },
     // Auto Hunt: tich chon loai + 1 level CHUNG cho tat ca (game tu cap neu vuot max).
     hunt: { enabled: true, level: 1, types: defaultHuntTypes() },
     pollSec: 60, // chu ky kiem tra doi ranh de gui luot moi
@@ -272,6 +274,7 @@ function normalizeConfig(cfg = {}) {
   return {
     gather: {
       enabled: g.enabled !== false,
+      commonLevel: Number(g.commonLevel) > 0 ? Number(g.commonLevel) : 1,
       troops: normalizeTroopRows(g.troops),
     },
     hunt: {
