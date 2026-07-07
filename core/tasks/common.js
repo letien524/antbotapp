@@ -260,7 +260,11 @@ async function searchGatherGo(device, cfg, { type, level, plusClicks }) {
 // su hien (bat case "Targets not found"/o bi chiem). Neu co -> tu do CHI TAP TOA DO CO DINH:
 // Gather (dung vi tri template tim duoc) -> chon DUNG troop -> March. Doi da duoc loc RANH truoc.
 // Tra ve: true = da day quan; false = khong co tai nguyen (bo qua, KHONG tinh la da gui).
-async function deployGatherFixed(device, cfg, troopIdx) {
+//
+// skipSelect=true: game da TU CHON san dung doi can (doi RANH dau tien tu tren xuong trung voi
+// troopIdx) -> BO QUA buoc selectTroopRow, March luon (khong ton 1 tap thua). Caller (collectResources)
+// tinh dieu nay tu trang thai doc truoc, nen van dam bao dung doi -> giu gan loai-theo-doi.
+async function deployGatherFixed(device, cfg, troopIdx, { skipSelect = false } = {}) {
   const [cx, cy] = coords(cfg, 'center');
   await device.tapPct(cx, cy);        // tap muc tieu giua man -> mo card tai nguyen
   await device.sleep(450);
@@ -272,7 +276,11 @@ async function deployGatherFixed(device, cfg, troopIdx) {
   }
   await device.tap(hit.x, hit.y);     // nut Gather (vi tri template)
   await device.sleep(650);            // cho man March Troops mo
-  await selectTroopRow(device, cfg, troopIdx); // chon dung troop (tap co dinh, sleep 400 ben trong)
+  if (skipSelect) {
+    device.log.info(`[gather] Doi ${troopIdx + 1} dang duoc game chon san (ranh) -> bo qua chon troop, March luon.`);
+  } else {
+    await selectTroopRow(device, cfg, troopIdx); // chon dung troop (tap co dinh, sleep 400 ben trong)
+  }
   const [mx, my] = coords(cfg, 'marchBtn');
   await device.tapPct(mx, my);        // nut March -> day troop ra bai (tap co dinh)
   await device.sleep(650);

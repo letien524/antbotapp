@@ -50,6 +50,14 @@ async function collectResources(device, ctx = {}) {
   // 2) DOC TRUOC trang thai tung troop (mo March Troops truc tiep). null => fallback luong cu
   //    (van an toan vi buoc march con kiem tra nut vang cho tung troop).
   const statuses = await readTroopStatuses(device, cfg);
+  // Trang thai BAN tung doi (tu buoc doc tren), CAP NHAT khi march thanh cong trong luot nay.
+  // Khi mo man March Troops, game TU CHON doi RANH dau tien tu tren xuong -> ta doan duoc doi do
+  // de biet co can tap chon khong (neu doi can dung la doi game chon san thi bo qua buoc chon).
+  const liveBusy = statuses ? statuses.map((s) => !!s.busy) : [];
+  const firstFreeIdx = () => {
+    for (let k = 0; k < liveBusy.length; k += 1) if (liveBusy[k] === false) return k;
+    return -1;
+  };
 
   // 3) Lap qua tung troop da bat: BAN thi bo qua som; RANH thi gather bang DUNG troop do.
   let sent = 0;
@@ -69,6 +77,9 @@ async function collectResources(device, ctx = {}) {
     const plusClicks = levelToClicks('gather', type, level);
 
     if (knownIdle) {
+      // Game tu chon san doi RANH dau tien tu tren xuong. Neu do DUNG la doi can (troopIdx)
+      // -> bo qua buoc chon troop, March luon. Neu con doi r, ranh o tren -> van chon dung doi.
+      const skipSelect = firstFreeIdx() === troopIdx;
       // NHANH: da chac troop RANH -> Search+Go roi CHI TAP TOA DO CO DINH (khong phan tich hinh).
       const ok = await searchGatherGo(device, cfg, { type, level, plusClicks });
       if (!ok) {
@@ -76,9 +87,10 @@ async function collectResources(device, ctx = {}) {
         await recover(device, 2);
         continue;
       }
-      // tam -> (1 lan chup xac nhan Gather) -> chon troop -> March. false = khong co tai nguyen.
-      const deployed = await deployGatherFixed(device, cfg, troopIdx);
+      // tam -> (1 lan chup xac nhan Gather) -> [chon troop neu can] -> March. false = khong co tai nguyen.
+      const deployed = await deployGatherFixed(device, cfg, troopIdx, { skipSelect });
       if (deployed) {
+        if (troopIdx < liveBusy.length) liveBusy[troopIdx] = true; // doi nay gio dang ban (da march)
         if (ctx.report) ctx.report(troopIdx, { task: 'gather', type, level });
         sent += 1;
         log.info(`[collectResources] Doi ${troopIdx + 1} di gather loai ${type + 1} lv${level} (tap toa do co dinh).`);
