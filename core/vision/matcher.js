@@ -39,39 +39,38 @@ function meanStd(data) {
   return { mean, std: Math.sqrt(varSum / data.length) || 1e-6 };
 }
 
-/**
- * Tim template trong screen.
- * @param {Buffer} screenPng  PNG buffer man hinh (tu device.capture()).
- * @param {Buffer} templatePng PNG buffer anh mau.
- * @param {object} opts { scale=0.5, threshold=0.7, step=1, templateScale=1 }
- *   templateScale: ti le resize template theo do phan giai may hien tai (khop moi man hinh).
- * @returns {Promise<null | {xPct,yPct,x,y,score,width,height}>}
- *   Toa do tra ve theo do phan giai GOC cua screen (da bu lai scale).
- */
-async function findTemplate(screenPng, templatePng, opts = {}) {
-  const { scale = 0.5, threshold = 0.7, step = 1, templateScale = 1 } = opts;
-
-  const screenImg = await Jimp.read(screenPng);
-  let tplImg = await Jimp.read(templatePng);
-
-  // Scale template theo do phan giai man hinh (template cat o 540 -> khop may do phan giai khac).
+// CHUAN BI template 1 lan (CACHE DUOC): resize theo do phan giai may -> grayscale ->
+// tinh san mean/std + mang da tru mean (tCentered). Template la file TINH nen ket qua nay
+// khong doi giua cac lan match -> screen.js cache lai theo (ten, templateScale) de KHONG
+// decode/grayscale template lap lai moi lan locate.
+function prepareTemplate(tplImg, templateScale = 1, scale = 0.5) {
+  let t = tplImg;
+  // Scale template theo do phan giai man hinh (template cat o 540 -> khop may khac).
   if (templateScale && Math.abs(templateScale - 1) > 0.02) {
     const nw = Math.max(1, Math.round(tplImg.bitmap.width * templateScale));
     const nh = Math.max(1, Math.round(tplImg.bitmap.height * templateScale));
-    tplImg = tplImg.resize(nw, nh);
+    t = tplImg.clone().resize(nw, nh);
   }
-
-  const origW = screenImg.bitmap.width;
-  const origH = screenImg.bitmap.height;
-
-  const S = toGray(screenImg, scale);
-  const T = toGray(tplImg, scale);
-
-  if (T.w > S.w || T.h > S.h) return null;
-
+  const T = toGray(t, scale);
   const tStat = meanStd(T.data);
   const tCentered = new Float32Array(T.data.length);
   for (let i = 0; i < T.data.length; i += 1) tCentered[i] = T.data[i] - tStat.mean;
+  return { w: T.w, h: T.h, data: T.data, tStat, tCentered };
+}
+
+/**
+ * So khop 1 template DA CHUAN BI voi 1 man hinh DA GRAYSCALE (toGray).
+ * Tach rieng buoc nay de: (1) cache template, (2) 1 khung hinh so nhieu template
+ * (chi grayscale man hinh 1 lan).
+ * @param {object} S  ket qua toGray(screenImg, scale) -> {w,h,data}
+ * @param {object} prep ket qua prepareTemplate(...)
+ * @param {object} opts { threshold=0.7, step=1, scale=0.5, origW, origH }
+ * @returns {Promise<null | {xPct,yPct,x,y,score,width,height}>}
+ */
+async function matchGray(S, prep, opts = {}) {
+  const { threshold = 0.7, step = 1, scale = 0.5, origW, origH } = opts;
+  const T = prep;
+  if (T.w > S.w || T.h > S.h) return null;
 
   let best = { score: -Infinity, x: 0, y: 0 };
   const maxY = S.h - T.h;
@@ -96,11 +95,11 @@ async function findTemplate(screenPng, templatePng, opts = {}) {
         const base = (ty + y) * S.w + tx;
         for (let x = 0; x < T.w; x += 1, ti += 1) {
           const sv = S.data[base + x] - sMean;
-          num += sv * tCentered[ti];
+          num += sv * T.tCentered[ti];
           sVar += sv * sv;
         }
       }
-      const denom = Math.sqrt(sVar) * Math.sqrt(tStat.std * tStat.std * T.data.length) || 1e-6;
+      const denom = Math.sqrt(sVar) * Math.sqrt(T.tStat.std * T.tStat.std * T.data.length) || 1e-6;
       const score = num / denom;
       if (score > best.score) best = { score, x: tx, y: ty };
     }
@@ -110,10 +109,8 @@ async function findTemplate(screenPng, templatePng, opts = {}) {
 
   // Tam template tren anh downscaled -> quy ve pixel goc.
   const invScale = 1 / scale;
-  const centerXds = best.x + T.w / 2;
-  const centerYds = best.y + T.h / 2;
-  const x = centerXds * invScale;
-  const y = centerYds * invScale;
+  const x = (best.x + T.w / 2) * invScale;
+  const y = (best.y + T.h / 2) * invScale;
 
   return {
     score: best.score,
@@ -126,4 +123,23 @@ async function findTemplate(screenPng, templatePng, opts = {}) {
   };
 }
 
-module.exports = { findTemplate };
+/**
+ * Tim template trong screen (wrapper tuong thich nguoc — decode moi thu moi lan).
+ * screen.js dung truc tiep prepareTemplate + matchGray de tan dung cache.
+ * @param {Buffer} screenPng  PNG buffer man hinh (tu device.capture()).
+ * @param {Buffer} templatePng PNG buffer anh mau.
+ * @param {object} opts { scale=0.5, threshold=0.7, step=1, templateScale=1 }
+ * @returns {Promise<null | {xPct,yPct,x,y,score,width,height}>}
+ */
+async function findTemplate(screenPng, templatePng, opts = {}) {
+  const { scale = 0.5, threshold = 0.7, step = 1, templateScale = 1 } = opts;
+  const screenImg = await Jimp.read(screenPng);
+  const tplImg = await Jimp.read(templatePng);
+  const prep = prepareTemplate(tplImg, templateScale, scale);
+  const S = toGray(screenImg, scale);
+  return matchGray(S, prep, {
+    threshold, step, scale, origW: screenImg.bitmap.width, origH: screenImg.bitmap.height,
+  });
+}
+
+module.exports = { findTemplate, toGray, prepareTemplate, matchGray };

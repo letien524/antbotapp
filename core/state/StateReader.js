@@ -113,6 +113,8 @@ async function ocrTimerRegion(img, region, area) {
     const { data } = await worker.recognize(buf);
     const t = data.text.trim();
     if (digitCount(t) > digitCount(best)) best = t;
+    // Da du chu so cua 1 dong ho (>=4) -> chac chan BAN, khong can thu them nguong (early-exit).
+    if (digitCount(best) >= 4) break;
   }
   return best;
 }

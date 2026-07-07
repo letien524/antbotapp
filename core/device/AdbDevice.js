@@ -184,6 +184,12 @@ class AdbDevice {
     return run(this._args(['exec-out', 'screencap', '-p']), { binary: true });
   }
 
+  // Chup man hinh -> tra ve anh Jimp da decode (1 lan) de so NHIEU template tren cung khung hinh
+  // ma khong chup + decode lai. Truyen qua locate(device, name, { image }).
+  async captureImage() {
+    return Jimp.read(await this.capture());
+  }
+
   // Tap theo pixel tuyet doi.
   async tap(x, y) {
     this._check();

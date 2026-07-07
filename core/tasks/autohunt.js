@@ -32,10 +32,12 @@ async function getState(device, { retries = 3 } = {}) {
   let lastRun = null;
   let lastSet = null;
   for (let i = 0; i <= retries; i += 1) {
-    const runHit = await locate(device, 'ah_hunting', { threshold: 0.4 });
+    // CHUP 1 LAN moi vong -> so ca 2 template tren cung khung hinh (giam nua so lan chup).
+    const img = await device.captureImage();
+    const runHit = await locate(device, 'ah_hunting', { threshold: 0.4, image: img });
     lastRun = runHit ? runHit.score : null;
     if (runHit && runHit.score >= 0.7) return 'running';
-    const setHit = await locate(device, 'ah_target', { threshold: 0.4 });
+    const setHit = await locate(device, 'ah_target', { threshold: 0.4, image: img });
     lastSet = setHit ? setHit.score : null;
     if (setHit && setHit.score >= 0.72) return 'setup';
     if (i < retries) await device.sleep(700);
