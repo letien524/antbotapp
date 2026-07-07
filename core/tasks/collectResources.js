@@ -73,6 +73,14 @@ async function collectResources(device, ctx = {}) {
       log.info(`[collectResources] Doi ${troopIdx + 1} dang BAN (doc truoc) -> bo qua, khong tim tai nguyen.`);
       continue;
     }
+    // Doi duoc BAT trong config nhung NAM NGOAI so doi doc duoc tren man March Troops
+    // (vd Doi 3/4 chua mo khoa / phai cuon man moi thay). KHONG the xac minh -> LOG LOI + CHAY TIEP.
+    // Khong tap mu vao vi tri uoc luong de tranh march NHAM doi khac. (statuses!=null = doc thanh cong.)
+    if (statuses && !known) {
+      log.error(`[collectResources] Doi ${troopIdx + 1} duoc bat nhung KHONG tim thay tren man March Troops `
+        + `(chua mo khoa hoac can cuon man) -> bo qua, chay tiep.`);
+      continue;
+    }
     const knownIdle = known && !statuses[troopIdx].busy;
     const plusClicks = levelToClicks('gather', type, level);
 
