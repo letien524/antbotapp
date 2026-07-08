@@ -305,7 +305,7 @@
           <path d="M11 4 L9 2 M13 4 L15 2"/>
         </svg>
       </span>
-      <span class="txt"><b>AntBot</b><small>Control Room</small></span>
+      <span class="txt"><b>AntBot</b><small>Control Room<span id="appVer" title="Thời điểm cập nhật bản bot"></span></small></span>
     </div>
     <div class="fleet-pills" id="fleetPills"></div>
     <div class="top-actions">
@@ -357,13 +357,14 @@
     </div>
 
     <div class="toolbox" id="csvbox">
-      <div class="hint">Cột: serial,name,gatherOn,gatherType,gatherLevel,huntOn,huntType,huntLevel,minStamina,pollSec — áp dụng cho mọi đội của máy.</div>
-      <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,0,6,0,0,1,10,60"></textarea>
+      <div class="hint">Cột: serial,name,gatherOn,gatherType,gatherLevel,pollSec — áp dụng cho mọi đội của máy.</div>
+      <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,0,6,60"></textarea>
       <div class="rowflex" style="margin-top:8px">
         <button class="btn primary" id="csvImport">Import CSV</button>
         <button class="btn ghost" id="csvExport">Export CSV</button>
         <button class="btn ghost" id="settingsExport">Backup settings</button>
         <button class="btn ghost" id="settingsImport">Restore settings</button>
+        <button class="btn ghost" id="clearAllCache">Xoá cache tài nguyên (tất cả)</button>
       </div>
       <div class="pathnote" id="cfgPathNote"></div>
     </div>

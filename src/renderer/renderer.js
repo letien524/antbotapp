@@ -11,7 +11,7 @@ const kpisEl = $('kpis');
 const fleetEl = $('fleetPills');
 const logsEl = $('logs');
 
-let meta = { huntTypes: [], huntAutoTypes: [], resourceTypes: [], troops: [] };
+let meta = { resourceTypes: [], troops: [] };
 let filter = 'all';        // all | running | idle | offline
 let searchText = '';
 let merged = [];           // du lieu thiet bi da gop
@@ -50,9 +50,8 @@ function addLog(entry) {
 window.api.onLog(addLog);
 
 // ---- Type / job labels ----
-function typeName(kind, slot) {
-  const list = kind === 'hunt' ? meta.huntTypes : meta.resourceTypes;
-  const t = (list || []).find((x) => x.slot === Number(slot));
+function typeName(slot) {
+  const t = (meta.resourceTypes || []).find((x) => x.slot === Number(slot));
   return t ? t.label.split(' (')[0] : ('ô ' + slot);
 }
 function agoLabel(ts) {
@@ -137,18 +136,17 @@ function passFilter(d) {
 function troopRowsHtml(d) {
   if (!d.online) return '<div class="troop disabled"><span class="tdot"></span><span class="job">Mất kết nối — không đọc được trạng thái</span></div>';
   const troops = d.troops || [];
-  const shown = troops.filter((t) => t.gather || t.hunt || t.status);
+  const shown = troops.filter((t) => t.gather || t.status);
   if (!shown.length) return '<div class="troop disabled"><span class="tdot"></span><span class="job">Chưa bật đội nào</span></div>';
   return shown.map((t) => {
     if (t.status) {
       const s = t.status;
-      const verb = s.task === 'hunt' ? 'Auto Hunt' : 'Gather';
       return `<div class="troop busy"><span class="tdot"></span><span class="tn">${esc(t.name.split(' ')[0] + ' ' + (t.idx + 1))}</span>
-        <span class="job">${verb} <b>${esc(typeName(s.task, s.type))}</b> L${s.level}</span><span class="timer">${agoLabel(s.at)}</span></div>`;
+        <span class="job">Gather <b>${esc(typeName(s.type))}</b> L${s.level}</span><span class="timer">${agoLabel(s.at)}</span></div>`;
     }
     if (t.gather) {
       return `<div class="troop free"><span class="tdot"></span><span class="tn">Đội ${t.idx + 1}</span>
-        <span class="job">Gather <b>${esc(typeName('gather', t.gather.type))}</b> L${t.gather.level}</span>${d.running ? '<span class="timer">sẵn sàng</span>' : '<span class="timer" style="background:var(--s2);color:var(--muted)">chưa chạy</span>'}</div>`;
+        <span class="job">Gather <b>${esc(typeName(t.gather.type))}</b> L${t.gather.level}</span>${d.running ? '<span class="timer">sẵn sàng</span>' : '<span class="timer" style="background:var(--s2);color:var(--muted)">chưa chạy</span>'}</div>`;
     }
     return `<div class="troop disabled"><span class="tdot"></span><span class="tn">Đội ${t.idx + 1}</span><span class="job">Đã tắt</span></div>`;
   }).join('');
@@ -212,6 +210,7 @@ function renderGrid() {
         <div class="menu">
           <button data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L18 10l-4-4L4 16z"/></svg>Đổi tên</button>
           <button data-act="capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13" r="3"/><path d="M9 7l1.5-2h3L15 7"/></svg>Chụp màn hình</button>
+          <button data-act="clearcache"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 0 0-14-3M4 15a8 8 0 0 0 14 3"/></svg>Xoá cache tài nguyên</button>
           <button class="rm" data-act="remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Xoá thiết bị</button>
         </div>
       </div>`;
@@ -235,6 +234,12 @@ function wireCard(card, d) {
   });
   act('rename', (e) => { e.stopPropagation(); closeMenus(); startRename(card, d); });
   act('capture', async (e) => { e.stopPropagation(); closeMenus(); await doCapture(d); });
+  act('clearcache', async (e) => {
+    e.stopPropagation(); closeMenus();
+    try { const r = await window.api.clearCache(d.serial); toast(`Đã xoá cache tài nguyên ${d.name}${r && r.restarted ? ' — worker restart' : ''}. Lượt sau sẽ chọn lại loại + set lại level.`); }
+    catch (er) { toastErr(er); }
+    renderAll(true);
+  });
   act('remove', async (e) => {
     e.stopPropagation(); closeMenus();
     if (confirm(`Xoá thiết bị ${d.name} (${d.serial})?`)) { await window.api.removeDevice(d.serial); toast('Đã xoá ' + d.name); renderAll(true); }
@@ -334,7 +339,6 @@ function readConfigForm() {
   const num = (id, def) => { const v = parseInt($(id).value, 10); return Number.isFinite(v) ? v : def; };
   return {
     gather: { enabled: $('g_enabled').checked, commonLevel: Math.max(1, num('g_common_level', 1)), troops: readTroopRows(gRowEls) },
-    hunt: { enabled: false, level: 1, types: [] }, // Auto Hunt da go khoi app
     pollSec: Math.max(10, num('pollSec', 60)),
   };
 }
@@ -411,6 +415,7 @@ $('csvImport').onclick = async () => { const text = $('csvText').value; if (!tex
 $('csvExport').onclick = async () => { try { const r = await window.api.exportCsv(); $('csvbox').classList.add('show'); $('csvText').value = r.csv; toast('Đã export cấu hình ra CSV.'); } catch (e) { toastErr(e); } };
 $('settingsExport').onclick = async () => { try { const r = await window.api.exportSettings(); $('csvbox').classList.add('show'); $('csvText').value = r.json; $('cfgPathNote').textContent = 'File settings: ' + r.path; toast('Đã backup settings ra ô văn bản.'); } catch (e) { toastErr(e); } };
 $('settingsImport').onclick = async () => { const text = $('csvText').value; if (!text.trim()) return; try { const r = await window.api.importSettings(text); toast(`Đã restore: ${r.imported} thiết bị.`); renderAll(); } catch (e) { toastErr({ message: 'Restore lỗi (JSON không hợp lệ?): ' + (e.message || e) }); } };
+$('clearAllCache').onclick = async () => { if (!confirm('Xoá cache tài nguyên (loại + level) của TẤT CẢ máy? Các worker đang chạy sẽ restart và chọn lại loại + set lại level từ đầu.')) return; try { const r = await window.api.clearAllCache(); toast(`Đã xoá cache ${r.cleared} máy${r.restarted ? ` — restart ${r.restarted} worker` : ''}.`); } catch (e) { toastErr(e); } renderAll(true); };
 
 // Log console
 $('consoleToggle').onclick = () => $('console').classList.toggle('min');
@@ -428,6 +433,11 @@ $('navSettings').onclick = () => { $('csvbox').classList.add('show'); $('csvbox'
 // ---- Init ----
 (async () => {
   try { meta = await window.api.configMeta(); } catch (e) { /* ignore */ }
+  try {
+    const info = await window.api.appInfo();
+    const d = new Date(info.updatedAt); const p2 = (n) => String(n).padStart(2, '0');
+    $('appVer').textContent = ` · cập nhật ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  } catch (e) { /* ignore */ }
   try { const p = await window.api.settingsPath(); $('cfgPathNote').textContent = 'File settings: ' + p.path; } catch (e) { /* ignore */ }
   renderAll();
   setInterval(renderAll, 8000);

@@ -97,6 +97,10 @@ async function terminate() {
     try { (await timerWorker).terminate(); } catch (e) { /* bo qua */ }
     timerWorker = null;
   }
+  if (nameWorkerP) {
+    try { (await nameWorkerP).terminate(); } catch (e) { /* bo qua */ }
+    nameWorkerP = null;
+  }
 }
 
 // OCR vung timer: chu SANG tren nen toi -> invert roi thu VAI nguong (chu doi do sang theo
@@ -143,6 +147,112 @@ async function readTroopBusy(device, cfg = {}) {
     device.log.warn(`[state] doc trang thai troop loi: ${e.message}`);
     return null;
   }
+}
+
+// ---- DOC DOI DANG FOCUS tren man DEPLOY (sau khi bam Gather) ----
+// Game tu focus doi RANH dau tien (tu tren xuong). Doi focus co VIEN VANG quanh card.
+// Ta: (1) tim hang co vien vang, (2) OCR ten header hang do -> biet CHINH XAC doi nao.
+// Vi tri header tung doi theo game-fraction y (pitch ~0.24). Doi 1,2 da verify tren samsung;
+// doi 3,4 ngoai suy. Ghi de qua cfg.world.troopHeaderY.
+const TROOP_HEADER_Y = [0.338, 0.578, 0.818, 1.058];
+const TROOP_INGAME_NAMES = ['Pro Troop', 'Troop I', 'Troop II', 'Troop III'];
+
+// Worker OCR RIENG cho TEN doi (chu cai, KHONG dung whitelist so cua worker chinh).
+let nameWorkerP = null;
+async function getNameWorker() {
+  if (!nameWorkerP) {
+    nameWorkerP = (async () => {
+      const w = await Tesseract.createWorker('eng');
+      await w.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz |',
+        tessedit_pageseg_mode: '7', // 1 dong
+      });
+      return w;
+    })();
+  }
+  return nameWorkerP;
+}
+
+// OCR "Pro Troop"/"Troop I|II|III" -> index 0..3. Chuan hoa: 'I','l','|','1' -> 'i' (so La Ma).
+// Tra ve -1 neu khong nhan ra (caller se BO QUA an toan, khong march).
+function troopNameToIndex(text) {
+  const s = String(text || '').toLowerCase();
+  if (s.includes('pro')) return 0; // "Pro Troop" -> doi 1
+  const norm = s.replace(/[l|!1/]/g, 'i').replace(/[^a-z]/g, ''); // "troop iii" -> "troopiii"
+  const m = norm.match(/troop(i+)/);
+  if (m) return Math.min(3, m[1].length); // 1->doi2, 2->doi3, 3->doi4
+  return -1;
+}
+
+// % pixel VANG tren 1 dai ngang quanh vien-top cua card (band de chong lech vai pixel).
+function goldBandFrac(img, area, gfy) {
+  let best = 0;
+  const x0 = Math.round(area.x + 0.06 * area.width);
+  const x1 = Math.round(area.x + 0.94 * area.width);
+  for (const d of [-0.005, -0.0025, 0, 0.0025, 0.005]) {
+    const y = Math.round(area.y + (gfy + d) * area.height);
+    if (y < 0 || y >= img.bitmap.height) continue;
+    let gold = 0; let n = 0;
+    for (let x = x0; x <= x1; x += 4) {
+      n += 1;
+      const { r, g, b } = Jimp.intToRGBA(img.getPixelColor(x, y));
+      if (r > 120 && g > 80 && r - b > 40) gold += 1; // vien vang: R cao, B thap
+    }
+    if (n) best = Math.max(best, gold / n);
+  }
+  return best;
+}
+
+// OCR ten header cua doi tai vi tri game-fraction hy.
+async function ocrTroopNameAt(img, area, hy) {
+  const region = { x: 0.02, y: hy - 0.020, w: 0.38, h: 0.030 };
+  const [x, y, w, h] = regionPx(region, area);
+  const crop = img.clone().crop(x, y, w, h).scale(3).grayscale()
+    .contrast(0.4);
+  const buf = await crop.getBufferAsync(Jimp.MIME_PNG);
+  const worker = await getNameWorker();
+  const { data } = await worker.recognize(buf);
+  return data.text.trim().replace(/\s+/g, ' ');
+}
+
+// Doc doi dang FOCUS tren man deploy. Tra ve { idx, name, rowIdx } hoac null.
+// idx = doi thuc (theo ten OCR); rowIdx = hang tren man (theo vien vang tim thay).
+async function readFocusedTroop(device, cfg = {}) {
+  try {
+    const rowsY = (cfg.world && cfg.world.troopHeaderY) || TROOP_HEADER_Y;
+    const img = await device.captureImage();
+    const area = areaOf(device, img);
+    for (let rowIdx = 0; rowIdx < rowsY.length; rowIdx += 1) {
+      const hy = rowsY[rowIdx];
+      if (hy - 0.02 < 0 || hy + 0.01 > 1) continue; // hang nam ngoai vung game (vd doi 4 chua cuon)
+      if (goldBandFrac(img, area, hy - 0.019) < 0.5) continue; // khong co vien vang -> khong focus
+      const raw = await ocrTroopNameAt(img, area, hy);
+      const idx = troopNameToIndex(raw);
+      device.log.info(`[deploy] doi focus (hang ${rowIdx + 1}): OCR="${raw}" -> doi ${idx >= 0 ? idx + 1 : '?'}`);
+      return { idx, name: raw, rowIdx };
+    }
+    device.log.info('[deploy] khong thay vien vang o hang doc duoc -> khong xac dinh duoc doi focus.');
+    return null;
+  } catch (e) {
+    if (e && e.cancelled) throw e;
+    device.log.warn(`[deploy] doc doi focus loi: ${e.message}`);
+    return null;
+  }
+}
+
+// Test OFFLINE: doc doi focus tu 1 anh PNG + game area cho truoc (de hieu chinh khong can device).
+async function readFocusedTroopFromPng(png, area, cfg = {}) {
+  const rowsY = (cfg.world && cfg.world.troopHeaderY) || TROOP_HEADER_Y;
+  const img = await Jimp.read(png);
+  const ar = area || fullArea(img);
+  for (let rowIdx = 0; rowIdx < rowsY.length; rowIdx += 1) {
+    const hy = rowsY[rowIdx];
+    if (hy - 0.02 < 0 || hy + 0.01 > 1) continue;
+    if (goldBandFrac(img, ar, hy - 0.019) < 0.5) continue;
+    const raw = await ocrTroopNameAt(img, ar, hy);
+    return { idx: troopNameToIndex(raw), name: raw, rowIdx };
+  }
+  return null;
 }
 
 // Test OFFLINE: doc busy/idle tung trop tu 1 anh PNG (full anh, khong co game area).
@@ -303,5 +413,7 @@ async function readMarchQueue(device, cfg = {}) {
 module.exports = {
   readMarchQueue, parseQueueFromPng, readTroopStamina, isMarchEnabled, isGoldButton,
   readNumberRegion, readTroopBusy, parseTroopBusyFromPng,
+  readFocusedTroop, readFocusedTroopFromPng, troopNameToIndex,
+  TROOP_HEADER_Y, TROOP_INGAME_NAMES,
   terminate, QUEUE_REGION, STAMINA_REGIONS, MARCH_BTN_REGION, TROOP_BUSY_REGIONS,
 };

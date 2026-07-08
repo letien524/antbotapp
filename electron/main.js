@@ -6,20 +6,46 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { fork } = require('child_process');
 const { DeviceManager } = require('../core/device/DeviceManager');
 const { logEmitter } = require('../core/logger');
 const {
   accountForSerial, tasksFromConfig,
-  HUNT_TYPES, RESOURCE_TYPES, TROOPS, CSV_HEADER,
+  RESOURCE_TYPES, TROOPS, CSV_HEADER,
   listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, saveDeviceConfig,
   getGlobalConfig, saveGlobalConfig, effectiveConfig, normalizeConfig,
-  importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH, HUNT_AUTO_TYPES,
+  importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH,
 } = require('../core/config');
 const { readMarchQueue } = require('../core/state/StateReader');
+const { clearCache: clearLevelCache, clearAllCache: clearAllLevelCache } = require('../core/state/levelCache');
 
 const dm = new DeviceManager();
 const DEVICE_WORKER = path.join(__dirname, '..', 'core', 'deviceWorker.js');
+const ROOT_DIR = path.join(__dirname, '..');
+
+// "update_at" cua bot = mtime MOI NHAT cua file nguon (.js/.html) -> phan anh lan cap nhat code
+// gan nhat. Tinh 1 lan luc khoi dong (cache) — hien o header UI.
+let appUpdatedAtMs = null;
+function appUpdatedAt() {
+  if (appUpdatedAtMs != null) return appUpdatedAtMs;
+  let max = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const e of entries) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.(js|html)$/.test(e.name)) {
+        try { const m = fs.statSync(p).mtimeMs; if (m > max) max = m; } catch (e2) { /* bo qua */ }
+      }
+    }
+  };
+  for (const r of ['core', 'electron', path.join('src', 'renderer')]) walk(path.join(ROOT_DIR, r));
+  appUpdatedAtMs = max || Date.now();
+  return appUpdatedAtMs;
+}
 
 // Moi may = 1 CHILD PROCESS rieng (cach ly CPU khoi UI).
 const procs = new Map();       // serial -> child process
@@ -75,21 +101,20 @@ function startWorker(serial) {
   return { running: true, tasks };
 }
 
-// Dung child (Nut DUNG cua nguoi dung): gui 'stop' + cleanup (dung Auto Hunt trong game
-// neu dang chay). Cho toi 12s de child kip mo popup + tap Stop truoc khi kill.
+// Dung child (Nut DUNG cua nguoi dung): gui 'stop' de child huy task dang chay va thoat han.
+// Cho toi 6s (token huy lam thao tac adb/sleep dung ngay) truoc khi kill cung.
 function stopWorker(serial) {
   const child = procs.get(serial);
   if (!child) return;
   procs.delete(serial);
   statusStore.delete(serial);
-  try { child.send({ type: 'stop', cleanup: true }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
-  const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 12000);
+  try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
+  const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 6000);
   child.once('exit', () => clearTimeout(t));
 }
 
 // Dung roi cho child thoat han (dung khi restart de doi cu-moi khong tranh device).
-// cleanup=true -> child dung Auto Hunt trong game truoc khi thoat (can nhieu thoi gian hon).
-function stopWorkerAndWait(serial, cleanup = false) {
+function stopWorkerAndWait(serial) {
   return new Promise((resolve) => {
     const child = procs.get(serial);
     if (!child) return resolve();
@@ -98,16 +123,15 @@ function stopWorkerAndWait(serial, cleanup = false) {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
     child.once('exit', finish);
-    try { child.send({ type: 'stop', cleanup }); } catch (e) { try { child.kill(); } catch (e2) {} finish(); }
-    setTimeout(() => { try { child.kill(); } catch (e) {} finish(); }, cleanup ? 12000 : 4000);
+    try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) {} finish(); }
+    setTimeout(() => { try { child.kill(); } catch (e) {} finish(); }, 6000);
   });
 }
 
-// Restart worker de ap dung config MOI. cleanup=true (khi cau hinh HUNT doi) -> dung Auto Hunt
-// cu trong game truoc, de child moi bat lai hunt theo config moi (khong ke thua hunt cu).
-async function restartIfRunning(serial, { cleanup = false } = {}) {
+// Restart worker de ap dung config MOI (dung cu -> cho thoat -> chay moi).
+async function restartIfRunning(serial) {
   if (!procs.has(serial)) return false;
-  await stopWorkerAndWait(serial, cleanup);
+  await stopWorkerAndWait(serial);
   if (tasksFromConfig(accountForSerial(serial).config).length > 0) startWorker(serial);
   return true;
 }
@@ -152,6 +176,22 @@ ipcMain.handle('device:remove', async (_e, serial) => {
   return { ok: true };
 });
 
+// Xoa cache tai nguyen (loai + level) cua 1 may. Restart worker dang chay de reset ca cache
+// trong bo nho (_lastSearch: vi tri carousel) -> luot sau chon lai loai + set lai level tu dau.
+ipcMain.handle('cache:clear', async (_e, serial) => {
+  clearLevelCache(serial);
+  const restarted = await restartIfRunning(serial);
+  return { ok: true, restarted };
+});
+
+// Xoa cache tai nguyen cua TAT CA may + restart cac worker dang chay.
+ipcMain.handle('cache:clearAll', async () => {
+  const cleared = clearAllLevelCache();
+  let restarted = 0;
+  for (const s of [...procs.keys()]) { await restartIfRunning(s); restarted += 1; }
+  return { ok: true, cleared, restarted };
+});
+
 // Load tat ca device DANG KET NOI vao danh sach da them.
 ipcMain.handle('devices:loadAll', async () => {
   const list = await dm.refresh();
@@ -192,7 +232,6 @@ ipcMain.handle('devices:troopTables', async () => {
         idx: t.index,
         name: t.label,
         gather: (cfg.gather.enabled && g.enabled !== false) ? { type: g.type, level: g.level } : null,
-        hunt: null, // Auto Hunt la global (khong theo troop)
         status: allIdle ? null : (status[t.index] || null),
       };
     });
@@ -236,8 +275,6 @@ ipcMain.handle('workers:stopAll', async () => {
 
 // ---- Meta cho UI ----
 ipcMain.handle('config:meta', async () => ({
-  huntTypes: HUNT_TYPES,
-  huntAutoTypes: HUNT_AUTO_TYPES,
   resourceTypes: RESOURCE_TYPES,
   troops: TROOPS,
 }));
@@ -246,15 +283,12 @@ ipcMain.handle('config:meta', async () => ({
 ipcMain.handle('config:getGlobal', async () => ({ config: getGlobalConfig() }));
 
 ipcMain.handle('config:saveGlobal', async (_e, { config, applyToAll }) => {
-  const beforeHunt = JSON.stringify(getGlobalConfig().hunt); // hunt cu (de biet co doi khong)
   saveGlobalConfig(config, { applyToAll });
-  const huntChanged = JSON.stringify(getGlobalConfig().hunt) !== beforeHunt;
   // Restart cac worker dang dung cau hinh chung de ap dung ngay (applyToAll -> tat ca).
-  // Neu hunt doi (hoac applyToAll ep may ve global) -> dung Auto Hunt cu de ap dung ngay.
   let restarted = 0;
   for (const d of listDevices()) {
     if ((!d.useOwnConfig || applyToAll) && procs.has(d.serial)) {
-      await restartIfRunning(d.serial, { cleanup: huntChanged || !!applyToAll });
+      await restartIfRunning(d.serial);
       restarted += 1;
     }
   }
@@ -273,18 +307,15 @@ ipcMain.handle('config:get', async (_e, serial) => {
 });
 
 ipcMain.handle('config:save', async (_e, { serial, config, useOwnConfig, name }) => {
-  const beforeHunt = JSON.stringify(effectiveConfig(serial).hunt); // hunt cu dang chay
   saveDeviceConfig(serial, { config, useOwnConfig, name });
-  const huntChanged = JSON.stringify(effectiveConfig(serial).hunt) !== beforeHunt;
-  // Hunt doi -> dung Auto Hunt cu trong game de child moi bat lai theo config moi.
-  const restarted = await restartIfRunning(serial, { cleanup: huntChanged });
+  const restarted = await restartIfRunning(serial);
   return { saved: true, restarted };
 });
 
 // ---- Import / Export CSV ----
 ipcMain.handle('config:importCsv', async (_e, text) => {
   const serials = importCsv(text);
-  for (const s of serials) await restartIfRunning(s, { cleanup: true });
+  for (const s of serials) await restartIfRunning(s);
   return { imported: serials.length, serials };
 });
 
@@ -295,11 +326,14 @@ ipcMain.handle('settings:export', async () => ({ json: exportSettings(), path: C
 
 ipcMain.handle('settings:import', async (_e, text) => {
   const n = importSettings(text);
-  for (const s of [...procs.keys()]) await restartIfRunning(s, { cleanup: true });
+  for (const s of [...procs.keys()]) await restartIfRunning(s);
   return { imported: n };
 });
 
 ipcMain.handle('settings:path', async () => ({ path: CONFIG_PATH }));
+
+// Thong tin bot: updatedAt = mtime moi nhat cua file nguon (hien lam "version" tren header).
+ipcMain.handle('app:info', async () => ({ updatedAt: appUpdatedAt() }));
 
 // Dung het child khi thoat app.
 function killAllProcs() {

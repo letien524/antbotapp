@@ -1,10 +1,9 @@
 'use strict';
 
-// Doc/ghi config/accounts.json. Schema moi (ro rang theo gather/hunt):
+// Doc/ghi config/accounts.json. Schema:
 //   config = {
-//     gather: { enabled, type(slot), level, maxMarches },
-//     hunt:   { enabled, type(slot), level, maxHunts },
-//     loopDelayMs,
+//     gather: { enabled, commonLevel, troops: [ {type, level, enabled} x4 ] },
+//     pollSec,
 //     world: {}   // ghi de toa do panel neu can
 //   }
 
@@ -28,19 +27,10 @@ function range(from, to, step) {
   for (let v = from; v <= to; v += step) a.push(v);
   return a;
 }
-const LV_1_15 = range(1, 15, 1);       // tai nguyen + 5 dã thú dau: 1->15 buoc 1
-const LV_LIZARD = range(5, 35, 5);     // lizard: 5,10,...,35 buoc 5
+const LV_1_15 = range(1, 15, 1);       // tai nguyen: 1->15 buoc 1
 
-// Danh sach LOAI. Slot = thu tu o trong panel Search (selectSlot theo index).
+// Danh sach LOAI tai nguyen. Slot = thu tu o trong panel Search (selectSlot theo index).
 // `levels` = cac level hop le theo dung thu tu tren slider -> so lan bam '+' = index cua level.
-const HUNT_TYPES = [
-  { slot: 0, label: 'Meat (o 1)', levels: LV_1_15 },
-  { slot: 1, label: 'Plants (o 2)', levels: LV_1_15 },
-  { slot: 2, label: 'Wet Soil (o 3)', levels: LV_1_15 },
-  { slot: 3, label: 'Sand (o 4)', levels: LV_1_15 },
-  { slot: 4, label: 'Honeydew (o 5)', levels: LV_1_15 },
-  { slot: 5, label: 'Lizard (o 6)', levels: LV_LIZARD },
-];
 // Thu tu carousel gather: meat, plants, wet soil, sand, diamond (slot = vi tri 0-4).
 const RESOURCE_TYPES = [
   { slot: 0, label: 'Meat - Woodlouse (o 1)', levels: LV_1_15 },
@@ -48,15 +38,6 @@ const RESOURCE_TYPES = [
   { slot: 2, label: 'Wet Soil (o 3)', levels: LV_1_15 },
   { slot: 3, label: 'Sand (o 4)', levels: LV_1_15 },
   { slot: 4, label: 'Diamond (o 5)', levels: LV_1_15 },
-];
-
-// Cac loai target cho AUTO HUNT (index = vi tri trong carousel popup Auto Hunt).
-const HUNT_AUTO_TYPES = [
-  { index: 0, label: 'Meat (Ladybug)' },
-  { index: 1, label: 'Plants (Locust)' },
-  { index: 2, label: 'Wet Soil (Snail)' },
-  { index: 3, label: 'Sand' },
-  { index: 4, label: 'Honeydew' },
 ];
 
 // Cac DOI (troop) co the chon di lam nhiem vu. Toi da 4 doi/may.
@@ -67,11 +48,10 @@ const TROOPS = [
   { index: 3, label: 'Doi 4 (Troop III)' },
 ];
 
-// So lan bam '+' tu MIN de dat `level` cho 1 loai (kind='hunt'|'gather', slot).
+// So lan bam '+' tu MIN de dat `level` cho 1 loai tai nguyen (kind giu de tuong thich, slot).
 // = vi tri cua level trong danh sach levels (chon gan nhat neu khong khop).
 function levelToClicks(kind, slot, level) {
-  const arr = kind === 'hunt' ? HUNT_TYPES : RESOURCE_TYPES;
-  const t = arr.find((x) => x.slot === slot) || arr[0];
+  const t = RESOURCE_TYPES.find((x) => x.slot === slot) || RESOURCE_TYPES[0];
   const levels = t.levels;
   let idx = levels.indexOf(Number(level));
   if (idx < 0) {
@@ -202,52 +182,15 @@ function defaultTroopRows() {
   return TROOPS.map((t) => ({ type: 0, level: 1, enabled: t.index < 2 }));
 }
 
-// Mac dinh cac loai auto hunt: bat 2 loai dau (Meat, Plants).
-function defaultHuntTypes() {
-  return HUNT_AUTO_TYPES.map((t) => ({ enabled: t.index < 2 }));
-}
-
-// Gather theo TUNG LOAI tai nguyen (meat, plants, wet soil, sand, diamond).
-// Moi loai: active (bot co gather khong) + level. Mac dinh bat loai dau (meat).
-function defaultGatherTypes() {
-  return RESOURCE_TYPES.map((t) => ({ active: t.slot < 1, level: 1 }));
-}
-
 function defaultConfig() {
   return {
     // Gather THEO TUNG TROOP: moi troop chon loai tai nguyen + level rieng.
     // commonLevel = level CHUNG (UI): doi no -> keo moi troop ve cung level; doi level 1 troop
     // rieng thi commonLevel giu nguyen. Chi de luu/hien thi, khong dung truc tiep khi chay.
     gather: { enabled: true, commonLevel: 1, troops: defaultTroopRows() },
-    // Auto Hunt da go khoi app -> mac dinh TAT (giu field cho tuong thich cau hinh cu).
-    hunt: { enabled: false, level: 1, types: defaultHuntTypes() },
     pollSec: 60, // chu ky kiem tra doi ranh de gui luot moi
     world: {},
   };
-}
-
-// Chuan hoa danh sach loai gather (du 5 loai, moi loai {active, level}).
-function normalizeGatherTypes(types) {
-  const out = [];
-  for (let i = 0; i < RESOURCE_TYPES.length; i += 1) {
-    const has = Array.isArray(types) && types[i];
-    const r = has || {};
-    out.push({
-      active: has ? (r.active !== false && r.enabled !== false) : (i < 1),
-      level: Number(r.level) > 0 ? Number(r.level) : 1,
-    });
-  }
-  return out;
-}
-
-// Chuan hoa danh sach loai auto hunt (du 5 loai, moi loai chi {enabled}).
-function normalizeHuntTypes(types) {
-  const out = [];
-  for (let i = 0; i < HUNT_AUTO_TYPES.length; i += 1) {
-    const has = Array.isArray(types) && types[i];
-    out.push({ enabled: has ? (has.enabled !== false) : (i < 2) });
-  }
-  return out;
 }
 
 // Chuan hoa mang dong cau hinh troop: dam bao du so dong = so DOI (4).
@@ -270,17 +213,11 @@ function normalizeTroopRows(rows) {
 function normalizeConfig(cfg = {}) {
   const c = cfg || {};
   const g = c.gather || {};
-  const h = c.hunt || {};
   return {
     gather: {
       enabled: g.enabled !== false,
       commonLevel: Number(g.commonLevel) > 0 ? Number(g.commonLevel) : 1,
       troops: normalizeTroopRows(g.troops),
-    },
-    hunt: {
-      enabled: h.enabled !== false,
-      level: Number(h.level) > 0 ? Number(h.level) : 1,
-      types: normalizeHuntTypes(h.types),
     },
     pollSec: Number(c.pollSec) > 0 ? Number(c.pollSec) : 60,
     world: c.world && typeof c.world === 'object' ? c.world : {},
@@ -293,19 +230,18 @@ function accountForSerial(serial) {
   return { serial, name: dev ? dev.name : serial, config: effectiveConfig(serial) };
 }
 
-// Danh sach task can chay theo THU TU UU TIEN: san da thu (1) -> thu thap (2).
+// Danh sach task can chay. Hien chi con thu thap tai nguyen (Auto Hunt da go khoi app).
 function tasksFromConfig(config) {
   const c = normalizeConfig(config);
   const t = [];
-  // Auto Hunt da go khoi app -> khong len lich huntBeast nua (chi con thu thap tai nguyen).
   if (c.gather.enabled) t.push('collectResources');
   return t;
 }
 
 // ---- Import / Export CSV (cau hinh hang loat nhieu device) ----
-// Cot: serial,name,gatherOn,gatherType,gatherLevel,huntOn,huntType,huntLevel,minStamina,pollSec
-// type/level ap dung cho MOI doi cua device do. gatherOn/huntOn: 1/0 (hoac true/false).
-const CSV_HEADER = 'serial,name,gatherOn,gatherType,gatherLevel,huntOn,huntType,huntLevel,minStamina,pollSec';
+// Cot: serial,name,gatherOn,gatherType,gatherLevel,pollSec
+// gatherType/gatherLevel ap dung cho MOI doi cua device do. gatherOn: 1/0 (hoac true/false).
+const CSV_HEADER = 'serial,name,gatherOn,gatherType,gatherLevel,pollSec';
 
 function truthy(v) {
   return /^(1|true|yes|y|on|x)$/i.test(String(v || '').trim());
@@ -321,11 +257,6 @@ function configFromRow(r) {
     gather: {
       enabled: r.gatherOn,
       troops: TROOPS.map(() => ({ type: r.gatherType, level: r.gatherLevel, enabled: true })),
-    },
-    hunt: {
-      enabled: r.huntOn,
-      minStamina: r.minStamina,
-      troops: TROOPS.map(() => ({ type: r.huntType, level: r.huntLevel, enabled: true })),
     },
     pollSec: r.pollSec,
   });
@@ -348,11 +279,7 @@ function parseCsv(text) {
         gatherOn: truthy(c[2]),
         gatherType: toInt(c[3], 0),
         gatherLevel: toInt(c[4], 1),
-        huntOn: truthy(c[5]),
-        huntType: toInt(c[6], 0),
-        huntLevel: toInt(c[7], 1),
-        minStamina: toInt(c[8], 10),
-        pollSec: toInt(c[9], 60),
+        pollSec: toInt(c[5], 60),
       }),
     });
   }
@@ -371,12 +298,10 @@ function exportCsv() {
   const lines = loadStore().devices.map((d) => {
     const cfg = effectiveConfig(d.serial);
     const g0 = cfg.gather.troops[0] || { type: 0, level: 1 };
-    const h0 = cfg.hunt.troops[0] || { type: 0, level: 1 };
     return [
       d.serial, d.name,
       cfg.gather.enabled ? 1 : 0, g0.type, g0.level,
-      cfg.hunt.enabled ? 1 : 0, h0.type, h0.level,
-      cfg.hunt.minStamina, cfg.pollSec,
+      cfg.pollSec,
     ].join(',');
   });
   return [CSV_HEADER, ...lines].join('\n');
@@ -384,8 +309,6 @@ function exportCsv() {
 
 module.exports = {
   CONFIG_PATH,
-  HUNT_TYPES,
-  HUNT_AUTO_TYPES,
   RESOURCE_TYPES,
   TROOPS,
   CSV_HEADER,

@@ -35,7 +35,7 @@ const statusTimer = setInterval(() => {
 }, 4000);
 
 let stopping = false;
-async function shutdown(opts = {}) {
+async function shutdown() {
   if (stopping) return;
   stopping = true;
   clearInterval(statusTimer);
@@ -46,7 +46,7 @@ async function shutdown(opts = {}) {
 }
 
 process.on('message', (msg) => {
-  if (msg === 'stop' || (msg && msg.type === 'stop')) shutdown({ cleanup: !!(msg && msg.cleanup) });
+  if (msg === 'stop' || (msg && msg.type === 'stop')) shutdown();
 });
 process.on('SIGTERM', shutdown);
 

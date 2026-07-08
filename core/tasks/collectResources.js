@@ -15,7 +15,7 @@
 
 const {
   ensureWorldMap, searchGatherGo, deployGatherFixed, searchTarget, deployMarchTroop,
-  deployMarchAuto, recover, readTroopStatuses,
+  deployMarchVerified, recover, readTroopStatuses,
 } = require('./common');
 const { levelToClicks } = require('../config');
 const { readMarchQueue } = require('../state/StateReader');
@@ -75,19 +75,14 @@ async function collectResources(device, ctx = {}) {
     }
     const plusClicks = levelToClicks('gather', type, level);
 
-    // Doi duoc BAT nhung NAM NGOAI so doi doc duoc tren man March Troops (vd Doi 3/4 tren may
-    // co 3-4 doi: man chi hien 2 doi dau, doi sau nam duoi / can cuon man). KHONG dinh vi duoc
-    // HANG de chon chinh xac -> gather bang doi GAME TU CHON (troop ranh dau tien) + kiem nut
-    // March VANG. AN TOAN: chi lam khi TAT CA doi doc duoc (1,2) DEU BAN -> doi game tu chon
-    // chac chan la doi 3+, khong march nham doi 1/2 (con ranh / da tat). Con doi doc duoc ranh
-    // -> uu tien no truoc, de doi nay luot sau.
+    // Doi duoc BAT nhung NAM NGOAI so doi doc truoc (vd Doi 3/4 tren may nhieu doi). Gather bang
+    // doi GAME TU CHON (auto-focus doi ranh dau tien) + XAC MINH TEN doi focus == doi can:
+    //   - Doc duoc ten & khop -> march (dung doi, dung loai).
+    //   - Doc duoc ten & khac -> bo qua, cho luot sau (khong march nham doi).
+    //   - Doi 4 co the NGOAI man (khong doc duoc ten): chi tin auto-focus khi cac doi doc duoc
+    //     (1,2) DEU BAN (luc do doi game tu chon chac chan la doi can) + nut March vang.
     if (statuses && !known) {
       const lowerAllBusy = liveBusy.length > 0 && liveBusy.every((b) => b === true);
-      if (!lowerAllBusy) {
-        log.info(`[collectResources] Doi ${troopIdx + 1}: chua dinh vi duoc hang tren March Troops & con doi `
-          + `1-${statuses.length} ranh -> uu tien doi doc duoc, de luot sau.`);
-        continue;
-      }
       const gather = await searchTarget(device, cfg, {
         tab: 'resource', type, level, plusClicks, actionTemplate: 'btn_gather', retries: 4,
       });
@@ -97,15 +92,17 @@ async function collectResources(device, ctx = {}) {
         continue;
       }
       await device.tap(gather.x, gather.y);
-      await device.sleep(400);
-      const marched = await deployMarchAuto(device, cfg);
-      if (marched) {
+      await device.sleep(450);
+      const res = await deployMarchVerified(device, cfg, troopIdx, { trustIfUnread: lowerAllBusy });
+      if (res.marched) {
         if (ctx.report) ctx.report(troopIdx, { task: 'gather', type, level });
         sent += 1;
-        log.info(`[collectResources] Doi ${troopIdx + 1} gather bang doi game tu chon (khong dinh vi duoc hang), loai ${type + 1} lv${level}.`);
+        log.info(`[collectResources] Doi ${troopIdx + 1} di gather loai ${type + 1} lv${level} (xac minh ten doi focus).`);
+        // Doi CUOI (Troop III) da march -> khong con doi ngoai vung de xu ly, dung som.
+        if (troopIdx >= rows.length - 1 || res.focusedIdx >= rows.length - 1) break;
       } else {
-        log.info(`[collectResources] Doi ${troopIdx + 1}: khong con doi ranh de gather -> bo qua.`);
-        await recover(device, 2);
+        log.info(`[collectResources] Doi ${troopIdx + 1}: ${res.reason} -> dong man deploy, cho luot sau.`);
+        await recover(device, 1); // 1 BACK: dong deploy ve world map (KHONG march, tranh Exit dialog)
       }
       continue;
     }

@@ -4,6 +4,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  appInfo: () => ipcRenderer.invoke('app:info'),
   listDevices: () => ipcRenderer.invoke('devices:list'),
   capture: (serial) => ipcRenderer.invoke('device:capture', serial),
   getState: (serial) => ipcRenderer.invoke('device:state', serial),
@@ -15,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   addDevice: (serial, name) => ipcRenderer.invoke('device:add', { serial, name }),
   renameDevice: (serial, name) => ipcRenderer.invoke('device:rename', { serial, name }),
   removeDevice: (serial) => ipcRenderer.invoke('device:remove', serial),
+  clearCache: (serial) => ipcRenderer.invoke('cache:clear', serial),
+  clearAllCache: () => ipcRenderer.invoke('cache:clearAll'),
 
   // Cau hinh
   configMeta: () => ipcRenderer.invoke('config:meta'),

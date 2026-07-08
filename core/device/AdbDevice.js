@@ -67,6 +67,9 @@ class AdbDevice {
     // Backend chup: null=chua thu, true=dung RAW (nhanh, bo ma hoa PNG), false=dung PNG.
     // Tu chon 1 lan/device o captureImage(). ANTBOT_NO_RAW=1 -> ep PNG (kill-switch).
     this.rawOk = process.env.ANTBOT_NO_RAW ? false : null;
+    // Touch device cho sendevent (tap nhanh, khong spawn JVM 'input'). undefined=chua detect,
+    // null=khong dung duoc (fallback 'input tap'), {path,maxX,maxY}=dung duoc. ANTBOT_NO_SENDEVENT=1 -> tat.
+    this._touch = process.env.ANTBOT_NO_SENDEVENT ? null : undefined;
   }
 
   // Dat/doi ten than thien -> cap nhat luon scope cua logger (log hien ten may).
@@ -253,9 +256,55 @@ class AdbDevice {
     await this.tap(x, y);
   }
 
-  // Bam CUNG 1 diem (theo %) `count` lan trong 1 LENH adb duy nhat (chuoi 'input tap' noi
-  // bang ';'). Giam manh so lan spawn process -> nhanh hon nhieu tren Windows.
-  // `input` tren may co do tre san (~30-50ms) nen cac tap van cach nhau du de game nhan.
+  // Detect touchscreen (1 lan/device) de dung `sendevent` (tap nhanh, KHONG spawn JVM 'input').
+  // Doc `getevent -pl`, chon device co ABS_MT_POSITION_X; uu tien ten chua 'touchscreen'
+  // (tranh nham touchpad/van tay). Tra ve {path,maxX,maxY} hoac null (fallback input tap).
+  async _detectTouch() {
+    if (this._touch !== undefined) return this._touch;
+    try {
+      const out = await run(this._args(['shell', 'getevent -pl']));
+      let cur = null; let withXY = null; let named = null;
+      for (const raw of out.split('\n')) {
+        const md = raw.match(/add device \d+:\s*(\S+)/);
+        if (md) { cur = { path: md[1], name: '', maxX: 0, maxY: 0 }; continue; }
+        if (!cur) continue;
+        const mn = raw.match(/name:\s*"([^"]*)"/);
+        if (mn) cur.name = mn[1];
+        const mx = raw.match(/ABS_MT_POSITION_X.*max\s+(\d+)/);
+        if (mx) cur.maxX = parseInt(mx[1], 10);
+        const my = raw.match(/ABS_MT_POSITION_Y.*max\s+(\d+)/);
+        if (my) {
+          cur.maxY = parseInt(my[1], 10);
+          if (cur.maxX > 0 && cur.maxY > 0) {
+            withXY = cur;
+            if (/touchscreen|touch_?dev|goodix|synaptics|ft\d/i.test(cur.name) && !/pad/i.test(cur.name)) named = cur;
+          }
+        }
+      }
+      this._touch = named || withXY || null;
+      if (this._touch) this.log.info(`[touch] tap nhanh qua sendevent ${this._touch.path} "${this._touch.name}" (max ${this._touch.maxX}x${this._touch.maxY}).`);
+      else this.log.info('[touch] khong detect duoc touchscreen -> dung input tap.');
+    } catch (e) {
+      this.log.warn(`[touch] detect loi (${e.message}) -> dung input tap.`);
+      this._touch = null;
+    }
+    return this._touch;
+  }
+
+  // Bam CUNG 1 diem `count` lan bang sendevent (raw touch events, KHONG spawn JVM 'input' ~475ms/lan).
+  // Tat ca event trong 1 LENH adb; sleep nho GIUA cac tap de game khong rot tap.
+  async _sendeventTaps(touch, x, y, n) {
+    const rx = Math.round((x * (touch.maxX + 1)) / this.size.width);
+    const ry = Math.round((y * (touch.maxY + 1)) / this.size.height);
+    const D = touch.path;
+    // Type-B multitouch: down (tracking id + toa do + BTN_TOUCH + SYN) roi up (tracking -1 + SYN).
+    const down = `sendevent ${D} 3 57 1;sendevent ${D} 3 53 ${rx};sendevent ${D} 3 54 ${ry};sendevent ${D} 1 330 1;sendevent ${D} 0 0 0`;
+    const up = `sendevent ${D} 3 57 4294967295;sendevent ${D} 1 330 0;sendevent ${D} 0 0 0`;
+    const cmd = Array(n).fill(`${down};${up}`).join(';sleep 0.02;');
+    await run(this._args(['shell', cmd]));
+  }
+
+  // Bam CUNG 1 diem (theo %) `count` lan. Uu tien sendevent (nhanh); loi -> input tap (chuoi ';').
   async tapRepeat(xPct, yPct, count) {
     const n = Math.max(0, parseInt(count, 10) || 0);
     if (n === 0) return;
@@ -264,14 +313,16 @@ class AdbDevice {
     const [x, y] = this.pctToPx(xPct, yPct);
     const rx = Math.round(x);
     const ry = Math.round(y);
+    const touch = await this._detectTouch();
+    if (touch) {
+      try { await this._sendeventTaps(touch, rx, ry, n); return; }
+      catch (e) { this.log.warn(`[tapRepeat] sendevent loi (${e.message}) -> input tap.`); }
+    }
     const one = `input tap ${rx} ${ry}`;
     try {
-      // Chen 'sleep' nho GIUA cac tap (chay tren may) de game KHONG ROT tap (bam qua nhanh
-      // se mat tap -> sai level). Van chi 1 lan spawn adb -> nhanh tren Windows.
       const cmd = Array(n).fill(one).join(' && sleep 0.05 && ');
       await run(this._args(['shell', cmd]));
     } catch (e) {
-      // May khong ho tro 'sleep' phan so / chuoi lenh -> tap tung cai (co sleep phia host).
       this.log.warn(`[tapRepeat] gop lenh loi (${e.message}) -> tap tung cai.`);
       for (let i = 0; i < n; i += 1) { this._check(); await this.tap(rx, ry); await this.sleep(55); }
     }

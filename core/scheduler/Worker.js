@@ -7,7 +7,6 @@
 
 const { makeLogger } = require('../logger');
 const { collectResources } = require('../tasks/collectResources');
-const { huntBeast } = require('../tasks/huntBeast');
 const { checkQueue } = require('../tasks/common');
 const { tasksFromConfig } = require('../config');
 const { CancelToken } = require('../cancel');
@@ -15,7 +14,6 @@ const { CancelToken } = require('../cancel');
 // Dang ky cac task kha dung.
 const TASKS = {
   collectResources,
-  huntBeast,
 };
 
 class Worker {
@@ -23,7 +21,7 @@ class Worker {
     this.device = device;
     this.account = account;
     const cfg = (account && account.config) || {};
-    // Task suy ra tu config (gather.enabled / hunt.enabled); co the ep bang `tasks`.
+    // Task suy ra tu config (gather.enabled); co the ep bang `tasks`.
     this.taskNames = tasks || tasksFromConfig(cfg);
     this.running = false;
     this.token = null; // token huy cho luot hien tai
@@ -34,14 +32,10 @@ class Worker {
     this.log = makeLogger(`worker:${device.name || device.serial}`);
   }
 
-  // Khoang cach den lan chay ke tiep cua 1 task (ms), tuy ket qua:
-  //  - hunt het the luc -> cho hoi (recoverSec)
-  //  - con lai -> poll binh thuong (pollSec) de gui luot moi khi doi ve.
+  // Khoang cach den lan chay ke tiep cua 1 task (ms): poll binh thuong (pollSec) de gui
+  // luot moi khi doi ve.
   _nextDelayMs(name, res, cfg) {
-    const pollMs = (Number(cfg.pollSec) > 0 ? cfg.pollSec : 60) * 1000;
-    // Auto Hunt: mot luot di+ve ~2p20s -> check lai sau ~140s.
-    if (name === 'huntBeast') return 140 * 1000;
-    return pollMs;
+    return (Number(cfg.pollSec) > 0 ? cfg.pollSec : 60) * 1000;
   }
 
   async start() {
@@ -95,8 +89,7 @@ class Worker {
             this.log.info(`[state] ${queue.used}/${queue.total} troop dang hanh quan -> QUEUE DAY, cho ${Math.round(pollMs / 1000)}s.`);
             for (const n of due) nextRun[n] = Date.now() + pollMs;
           } else {
-            // Con o trong -> lam task theo THU TU UU TIEN (due da xep hunt truoc, gather sau).
-            // Task uu tien dung o trong truoc; task sau chi con o con lai.
+            // Con o trong -> lam task. (Hien chi con collectResources.)
             let remainingFree = queue ? queue.free : null;
             for (const name of due) {
               if (!this.running) break;
@@ -111,7 +104,7 @@ class Worker {
                 account: this.account, config: cfg, token: this.token, queue: qForTask,
                 report: (troopIdx, info) => { this.troopStatus[troopIdx] = { ...info, at: Date.now() }; },
               });
-              const used = (res && (res.sent || res.hunted)) || 0;
+              const used = (res && res.sent) || 0;
               if (remainingFree != null) remainingFree -= used;
               nextRun[name] = Date.now() + this._nextDelayMs(name, res, cfg);
               this.log.info(`[lich] ${name} chay lai sau ${Math.round((nextRun[name] - Date.now()) / 1000)}s`);

@@ -52,4 +52,21 @@ function setCachedLevel(serial, slot, level) {
   save(serial, data);
 }
 
-module.exports = { getCachedLevel, setCachedLevel, cachePath, CACHE_DIR };
+// Xoa cache level cua 1 serial -> bot se CHON LAI loai + SET LAI level tu dau o luot sau.
+function clearCache(serial) {
+  try { fs.unlinkSync(cachePath(serial)); return true; } catch (e) { return false; }
+}
+
+// Xoa TOAN BO cache level (moi serial). Tra ve so file da xoa.
+function clearAllCache() {
+  let n = 0;
+  try {
+    for (const f of fs.readdirSync(CACHE_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      try { fs.unlinkSync(path.join(CACHE_DIR, f)); n += 1; } catch (e) { /* bo qua */ }
+    }
+  } catch (e) { /* thu muc chua co */ }
+  return n;
+}
+
+module.exports = { getCachedLevel, setCachedLevel, clearCache, clearAllCache, cachePath, CACHE_DIR };
