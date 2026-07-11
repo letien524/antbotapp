@@ -16,9 +16,32 @@ let filter = 'all';        // all | running | idle | offline
 let searchText = '';
 let merged = [];           // du lieu thiet bi da gop
 let configSerial = null;
-let configMode = 'device'; // device | global
+let configSerials = [];    // bulk config: danh sach may da chon
+let configMode = 'device'; // device | global | bulk
 let gRowEls = [];
 const logLevels = { INFO: true, WARN: true, ERROR: true };
+
+// Kieu hien thi + che do "dung" duoc nho lai giua cac phien.
+let viewMode = localStorage.getItem('antbot.viewMode') || 'grid'; // grid | list
+let haltMode = localStorage.getItem('antbot.haltMode') || 'stop';  // stop | pause | pause-soft
+const selected = new Set(); // serial da tick (chi dung o list view)
+
+// Cac che do "dung" cho split-button. stop = kill han; pause = treo ngay; pause-soft = xong luot roi treo.
+const HALT_MODES = {
+  stop:         { label: 'Dừng',            menu: 'Dừng hẳn',           cls: 'danger', hint: 'Dừng hẳn — tắt tiến trình worker của máy.' },
+  pause:        { label: 'Tạm dừng ngay',   menu: 'Tạm dừng ngay',      cls: 'warn',   hint: 'Tạm dừng ngay — huỷ lượt đang chạy tức thì, giữ tiến trình (bấm Tiếp tục để chạy lại).' },
+  'pause-soft': { label: 'Tạm dừng lượt sau', menu: 'Tạm dừng lượt sau', cls: 'warn',  hint: 'Tạm dừng lượt sau — để lượt hiện tại chạy xong rồi mới treo.' },
+};
+// Cac muc trong dropdown chon che do dung (co danh dau ✓ che do dang chon). Dung chung card/list/bulk.
+function haltItemsHtml() {
+  const item = (m, icon) => `<button data-halt="${m}" class="${haltMode === m ? 'active' : ''}">${icon}${HALT_MODES[m].menu}${haltMode === m ? '<span class="mk">✓</span>' : ''}</button>`;
+  return item('stop', IC_STOP) + item('pause', IC_PAUSE) + item('pause-soft', IC_PAUSE);
+}
+function setHaltMode(m) { if (HALT_MODES[m]) { haltMode = m; localStorage.setItem('antbot.haltMode', m); } }
+async function execHalt(serial, mode) {
+  if (mode === 'stop') return window.api.stopWorker(serial);
+  return window.api.pauseWorker(serial, mode !== 'pause-soft'); // pause = immediate; pause-soft = xong luot
+}
 
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function fmtTime(t) { const d = new Date(t || Date.now()); return d.toTimeString().slice(0, 8); }
@@ -77,10 +100,55 @@ async function renderAll(force = false) {
     const t = tByS.get(d.serial) || {};
     return { ...d, queue: t.queue || null, troops: t.troops || null };
   });
+  // Bo serial khong con ton tai khoi tap da chon (may bi xoa/mat).
+  const present = new Set(merged.map((d) => d.serial));
+  for (const s of [...selected]) if (!present.has(s)) selected.delete(s);
   renderFleet();
   renderKpis();
   renderCounts();
-  renderGrid();
+  renderTopActions();
+  renderDevices();
+}
+
+// Bat/tat + dong bo nut top-bar theo trang thai dan:
+//  - Chay tat ca: bam duoc khi CO may co the chay (online + chua chay) HOAC dang tam dung (se tiep tuc).
+//  - Halt tat ca (split): bam duoc khi CO may dang chay; nhan/mau/menu theo che do dung dang chon
+//    (dung chung haltMode voi tung may -> doi che do o day thi nut o cac may cung doi theo).
+function renderTopActions() {
+  const canStart = merged.some((d) => (d.online && !d.running) || d.paused);
+  const canStop = merged.some((d) => d.running);
+  const sa = $('startAll');
+  if (sa) { sa.disabled = !canStart; sa.title = canStart ? 'Chạy máy đang dừng + tiếp tục máy tạm dừng' : 'Không có máy nào để chạy'; }
+
+  const hm = HALT_MODES[haltMode] || HALT_MODES.stop;
+  const cls = `btn ghost ${hm.cls === 'danger' ? 'danger' : 'warn'}`;
+  const ha = $('haltAll');
+  if (ha) {
+    ha.className = cls;
+    ha.disabled = !canStop;
+    ha.title = hm.hint + ' — áp cho mọi máy đang chạy.';
+    ha.innerHTML = `${haltIcon(haltMode)}${haltMode === 'stop' ? 'Dừng tất cả' : 'Tạm dừng tất cả'}`;
+  }
+  const caret = $('haltAllMenu');
+  if (caret) caret.className = cls + ' caret';
+  const menu = $('haltAllMenuList');
+  if (menu) {
+    menu.innerHTML = haltItemsHtml();
+    menu.querySelectorAll('[data-halt]').forEach((b) => b.onclick = async (e) => {
+      e.stopPropagation(); closeMenus(); setHaltMode(b.dataset.halt);
+      if (merged.some((d) => d.running)) await haltAll();
+      else { toast(`Đã chọn chế độ dừng: ${HALT_MODES[b.dataset.halt].menu}`); renderAll(true); }
+    });
+  }
+}
+
+// Halt TAT CA theo che do dang chon: stop = dung han; pause/pause-soft = tam dung (ngay/luot sau).
+async function haltAll() {
+  try {
+    if (haltMode === 'stop') { const r = await window.api.stopAll(); toast(`Đã dừng ${r.stopped} máy.`); }
+    else { const r = await window.api.pauseAll(haltMode !== 'pause-soft'); toast(`Đã ${HALT_MODES[haltMode].menu.toLowerCase()} ${r.paused} máy.`); }
+  } catch (e) { toastErr(e); }
+  renderAll(true);
 }
 
 function renderFleet() {
@@ -173,21 +241,74 @@ const IC_GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const IC_DOTS = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
 const IC_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const IC_STOP = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+const IC_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+const IC_RESUME = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const IC_CARET = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 9l6 6 6-6z"/></svg>';
 
-function renderGrid() {
+// Icon + nhan tuong ung che do "dung" hien tai.
+function haltIcon(mode) { return mode === 'stop' ? IC_STOP : IC_PAUSE; }
+
+// State pill dung chung cho card + list row.
+function statePillHtml(d) {
+  if (!d.online) return '<span class="state-pill off"><span class="dot off"></span>Ngoại tuyến</span>';
+  if (d.running && d.paused) return `<span class="state-pill paused">${IC_PAUSE}Tạm dừng</span>`;
+  if (d.running) return '<span class="state-pill run"><span class="dot run"></span>RUNNING</span>';
+  return '<span class="state-pill idle">Rảnh</span>';
+}
+
+// Cum nut dieu khien bot (start / halt-split / resume) — dung chung card + list.
+function controlsHtml(d) {
+  if (!d.online) return `<button class="btn primary" disabled>${IC_PLAY}Chạy</button>`;
+  if (!d.running) return `<button class="btn primary" data-act="start">${IC_PLAY}Chạy</button>`;
+  if (d.paused) return `<button class="btn warn" data-act="resume">${IC_RESUME}Tiếp tục</button><button class="btn danger" data-act="stop">${IC_STOP}Dừng</button>`;
+  const hm = HALT_MODES[haltMode] || HALT_MODES.stop;
+  return `<div class="split">
+    <button class="btn ${hm.cls}" data-act="halt" title="${esc(hm.hint)}">${haltIcon(haltMode)}${hm.label}</button>
+    <button class="btn ${hm.cls} caret" data-act="haltmenu" title="Chọn thao tác dừng">${IC_CARET}</button>
+    <div class="menu haltmenu">${haltItemsHtml()}</div>
+  </div>`;
+}
+
+// Wire cum dieu khien bot cho 1 phan tu (card hoac list row).
+function wireControls(el, d) {
+  const act = (name, fn) => { const b = el.querySelector(`[data-act="${name}"]`); if (b) b.onclick = fn; };
+  act('start', async (e) => { e.stopPropagation(); try { await window.api.startWorker(d.serial); toast('Đã chạy ' + d.name); } catch (er) { toastErr(er); } finally { renderAll(true); } });
+  act('stop', async (e) => { e.stopPropagation(); try { await window.api.stopWorker(d.serial); toast('Đã dừng ' + d.name); } catch (er) { toastErr(er); } finally { renderAll(true); } });
+  act('resume', async (e) => { e.stopPropagation(); try { await window.api.resumeWorker(d.serial); toast('Tiếp tục ' + d.name); } catch (er) { toastErr(er); } finally { renderAll(true); } });
+  act('halt', async (e) => {
+    e.stopPropagation();
+    const hm = HALT_MODES[haltMode] || HALT_MODES.stop;
+    try { await execHalt(d.serial, haltMode); toast(`${hm.label} ${d.name}`); } catch (er) { toastErr(er); } finally { renderAll(true); }
+  });
+  act('haltmenu', (e) => {
+    e.stopPropagation();
+    const m = el.querySelector('.haltmenu');
+    const wasOpen = m.classList.contains('show');
+    closeMenus();
+    if (!wasOpen) m.classList.add('show');
+  });
+  el.querySelectorAll('.haltmenu [data-halt]').forEach((b) => b.onclick = async (e) => {
+    e.stopPropagation(); closeMenus();
+    const m = b.dataset.halt; setHaltMode(m);
+    try { await execHalt(d.serial, m); toast(`${HALT_MODES[m].label} ${d.name}`); } catch (er) { toastErr(er); } finally { renderAll(true); }
+  });
+}
+
+// Dispatcher: render theo kieu hien thi hien tai (card / list).
+function renderDevices() {
+  gridEl.classList.toggle('list', viewMode === 'list');
+  updateBulkBar();
   const items = merged.filter(passFilter);
+  if (viewMode === 'list') renderList(items); else renderCards(items);
+}
+
+function renderCards(items) {
   gridEl.innerHTML = '';
   if (!merged.length) { gridEl.innerHTML = '<div class="empty">Chưa có thiết bị. Bấm <b>Nạp thiết bị</b> hoặc <b>Thêm máy</b>.</div>'; return; }
   if (!items.length) { gridEl.innerHTML = '<div class="empty">Không có máy khớp bộ lọc.</div>'; return; }
 
   for (const d of items) {
     const isEmu = /^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(d.serial) || d.serial.includes('emulator');
-    const statePill = !d.online ? '<span class="state-pill off"><span class="dot off"></span>Ngoại tuyến</span>'
-      : d.running ? '<span class="state-pill run"><span class="dot run"></span>RUNNING</span>'
-        : '<span class="state-pill idle">Rảnh</span>';
-    const runBtn = d.running
-      ? `<button class="btn danger" data-act="stop">${IC_STOP}Dừng</button>`
-      : `<button class="btn primary" data-act="start" ${d.online ? '' : 'disabled'}>${IC_PLAY}Chạy</button>`;
     const sizeTxt = d.size ? ` · ${d.size.width}×${d.size.height}` : '';
 
     const card = document.createElement('div');
@@ -199,15 +320,15 @@ function renderGrid() {
           <div class="nm"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}</div>
           <div class="sub">${esc(d.serial)}${sizeTxt}</div>
         </div>
-        ${statePill}
+        ${statePillHtml(d)}
       </div>
       ${queueHtml(d)}
       <div class="troops">${troopRowsHtml(d)}</div>
       <div class="card-actions">
-        ${runBtn}
+        ${controlsHtml(d)}
         <button class="icon-btn" data-act="config" title="Cấu hình">${IC_GEAR}</button>
         <button class="icon-btn" data-act="menu" title="Thêm">${IC_DOTS}</button>
-        <div class="menu">
+        <div class="menu overflow">
           <button data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L18 10l-4-4L4 16z"/></svg>Đổi tên</button>
           <button data-act="capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13" r="3"/><path d="M9 7l1.5-2h3L15 7"/></svg>Chụp màn hình</button>
           <button data-act="clearcache"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 0 0-14-3M4 15a8 8 0 0 0 14 3"/></svg>Xoá cache tài nguyên</button>
@@ -220,14 +341,51 @@ function renderGrid() {
   }
 }
 
+function queueText(d) {
+  if (!d.online) return '<span style="color:var(--faint)">mất kết nối</span>';
+  if (!d.queue) return '<span style="color:var(--faint)">—</span>';
+  const q = d.queue;
+  return `<b>${q.used}</b>/${q.total}${q.free <= 0 ? ' · đầy' : ` · ${q.free} trống`}`;
+}
+
+function renderList(items) {
+  gridEl.innerHTML = '';
+  if (!merged.length) { gridEl.innerHTML = '<div class="empty">Chưa có thiết bị. Bấm <b>Nạp thiết bị</b> hoặc <b>Thêm máy</b>.</div>'; return; }
+  if (!items.length) { gridEl.innerHTML = '<div class="empty">Không có máy khớp bộ lọc.</div>'; return; }
+
+  for (const d of items) {
+    const row = document.createElement('div');
+    row.className = 'lrow' + (d.running ? ' run' : '') + (d.online ? '' : ' offline') + (selected.has(d.serial) ? ' sel' : '');
+    row.innerHTML = `
+      <input type="checkbox" class="chkbox rowchk" ${selected.has(d.serial) ? 'checked' : ''} />
+      <div class="lname">
+        <div class="nn"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}</div>
+        <div class="lserial">${esc(d.serial)}</div>
+      </div>
+      ${statePillHtml(d)}
+      <div class="lqueue">${queueText(d)}</div>
+      <div class="lactions">
+        ${controlsHtml(d)}
+        <button class="icon-btn" data-act="config" title="Cấu hình">${IC_GEAR}</button>
+      </div>`;
+
+    const chk = row.querySelector('.rowchk');
+    chk.onchange = (e) => { e.stopPropagation(); toggleSel(d.serial, chk.checked, row); };
+    chk.onclick = (e) => e.stopPropagation();
+    wireControls(row, d);
+    const cfg = row.querySelector('[data-act="config"]');
+    if (cfg) cfg.onclick = (e) => { e.stopPropagation(); openConfig(d.serial); };
+    gridEl.appendChild(row);
+  }
+}
+
 function wireCard(card, d) {
+  wireControls(card, d);
   const act = (name, fn) => { const b = card.querySelector(`[data-act="${name}"]`); if (b) b.onclick = fn; };
-  act('start', async (e) => { e.stopPropagation(); try { await window.api.startWorker(d.serial); toast('Đã chạy ' + d.name); } catch (er) { toastErr(er); } finally { renderAll(true); } });
-  act('stop', async (e) => { e.stopPropagation(); try { await window.api.stopWorker(d.serial); toast('Đã dừng ' + d.name); } catch (er) { toastErr(er); } finally { renderAll(true); } });
   act('config', (e) => { e.stopPropagation(); openConfig(d.serial); });
   act('menu', (e) => {
     e.stopPropagation();
-    const m = card.querySelector('.menu');
+    const m = card.querySelector('.menu.overflow');
     const wasOpen = m.classList.contains('show');
     closeMenus();
     if (!wasOpen) m.classList.add('show');
@@ -356,6 +514,16 @@ async function openConfig(serial) {
   fillConfigForm(config);
   openDrawer();
 }
+async function openBulkConfig() {
+  if (!selected.size) { toast('Chưa chọn máy nào.', true); return; }
+  configMode = 'bulk'; configSerial = null; configSerials = [...selected];
+  const { config } = await window.api.getGlobalConfig(); // lay cau hinh chung lam mau
+  $('drawerTitle').textContent = `Cấu hình ${configSerials.length} máy đã chọn`;
+  $('drawerWho').textContent = 'Áp làm cấu hình riêng cho các máy đã chọn';
+  $('scopeDevice').style.display = 'none'; $('scopeGlobal').style.display = 'none';
+  fillConfigForm(config);
+  openDrawer();
+}
 async function openGlobalConfig() {
   configMode = 'global'; configSerial = null;
   const { config } = await window.api.getGlobalConfig();
@@ -374,6 +542,10 @@ $('saveCfg').onclick = async () => {
       const applyToAll = $('applyToAll').checked;
       const res = await window.api.saveGlobalConfig(config, applyToAll);
       toast(`Đã lưu cấu hình chung${applyToAll ? ' + áp dụng toàn bộ' : ''}${res && res.restarted ? ` (restart ${res.restarted} máy)` : ''}.`);
+    } else if (configMode === 'bulk') {
+      if (!configSerials.length) return;
+      const res = await window.api.saveConfigMany(configSerials, config, true);
+      toast(`Đã áp cấu hình cho ${res.saved} máy${res && res.restarted ? ` — restart ${res.restarted}` : ''}.`);
     } else {
       if (!configSerial) return;
       const useOwn = $('useOwnConfig').checked;
@@ -395,15 +567,107 @@ $('themeBtn').onclick = () => {
 };
 document.querySelectorAll('#filterSeg button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('#filterSeg button').forEach((x) => x.classList.remove('on'));
-  b.classList.add('on'); filter = b.dataset.filter; renderGrid();
+  b.classList.add('on'); filter = b.dataset.filter; renderDevices();
 });
-$('searchInput').oninput = (e) => { searchText = e.target.value.trim().toLowerCase(); renderGrid(); };
+$('searchInput').oninput = (e) => { searchText = e.target.value.trim().toLowerCase(); renderDevices(); };
+
+// ---- View toggle (card / list) ----
+document.querySelectorAll('#viewSeg button').forEach((b) => {
+  b.classList.toggle('on', b.dataset.view === viewMode);
+  b.onclick = () => {
+    document.querySelectorAll('#viewSeg button').forEach((x) => x.classList.remove('on'));
+    b.classList.add('on');
+    viewMode = b.dataset.view; localStorage.setItem('antbot.viewMode', viewMode);
+    if (viewMode !== 'list') selected.clear(); // bo chon khi roi che do list
+    renderDevices();
+  };
+});
+
+// ---- Selection + bulk bar ----
+function toggleSel(serial, on, rowEl) {
+  if (on) selected.add(serial); else selected.delete(serial);
+  if (rowEl) rowEl.classList.toggle('sel', on);
+  updateBulkBar();
+}
+function bySerial(serial) { return merged.find((d) => d.serial === serial); }
+function selectedDevices() { return [...selected].map(bySerial).filter(Boolean); }
+
+function updateBulkBar() {
+  const bar = $('bulkBar');
+  const show = viewMode === 'list';
+  bar.classList.toggle('show', show);
+  if (!show) return;
+  const n = selected.size;
+  $('selCount').textContent = n ? `${n} máy đã chọn` : 'Chọn máy để thao tác';
+  bar.querySelectorAll('[data-bulk]').forEach((b) => { b.disabled = n === 0; });
+  // Nhan cua nut halt bulk theo che do dang chon.
+  const hm = HALT_MODES[haltMode] || HALT_MODES.stop;
+  const hbtn = $('bulkHaltBtn');
+  hbtn.className = `btn ${hm.cls}`;
+  hbtn.title = hm.hint;
+  hbtn.innerHTML = `${haltIcon(haltMode)}${hm.label}`;
+  document.querySelector('.split .caret[data-bulk="haltmenu"]').className = `btn ${hm.cls} caret`;
+  // Menu che do (dung chung nhan, danh dau ✓ che do dang chon).
+  $('bulkHaltMenu').innerHTML = haltItemsHtml();
+  $('bulkHaltMenu').querySelectorAll('[data-halt]').forEach((b) => b.onclick = (e) => {
+    e.stopPropagation(); closeMenus(); setHaltMode(b.dataset.halt); updateBulkBar(); renderDevices();
+    bulkHalt();
+  });
+  // Trang thai select-all theo tap dang loc.
+  const items = merged.filter(passFilter);
+  const selCount = items.filter((d) => selected.has(d.serial)).length;
+  const sa = $('selAll');
+  sa.checked = items.length > 0 && selCount === items.length;
+  sa.indeterminate = selCount > 0 && selCount < items.length;
+}
+
+$('selAll').onchange = (e) => {
+  const on = e.target.checked;
+  const items = merged.filter(passFilter);
+  for (const d of items) { if (on) selected.add(d.serial); else selected.delete(d.serial); }
+  renderDevices();
+};
+
+async function bulkRun(label, fn, filterFn) {
+  const devs = selectedDevices().filter(filterFn);
+  if (!devs.length) { toast('Không có máy phù hợp trong lựa chọn.', true); return; }
+  let ok = 0;
+  for (const d of devs) { try { await fn(d); ok += 1; } catch (er) { /* bo qua tung may */ } }
+  toast(`${label}: ${ok}/${devs.length} máy.`);
+  renderAll(true);
+}
+async function bulkHalt() {
+  const hm = HALT_MODES[haltMode] || HALT_MODES.stop;
+  await bulkRun(hm.label, (d) => execHalt(d.serial, haltMode), (d) => d.running && !d.paused);
+}
+
+$('bulkBar').querySelector('[data-bulk="start"]').onclick = () =>
+  bulkRun('Chạy', (d) => window.api.startWorker(d.serial), (d) => d.online && !d.running);
+$('bulkBar').querySelector('[data-bulk="halt"]').onclick = () => bulkHalt();
+$('bulkBar').querySelector('[data-bulk="haltmenu"]').onclick = (e) => {
+  e.stopPropagation();
+  const m = $('bulkHaltMenu');
+  const wasOpen = m.classList.contains('show');
+  closeMenus();
+  if (!wasOpen) m.classList.add('show');
+};
+$('bulkBar').querySelector('[data-bulk="resume"]').onclick = () =>
+  bulkRun('Tiếp tục', (d) => window.api.resumeWorker(d.serial), (d) => d.running && d.paused);
+$('bulkBar').querySelector('[data-bulk="config"]').onclick = () => openBulkConfig();
+
 $('toggleAdd').onclick = () => $('addbox').classList.toggle('show');
 $('toggleCsv').onclick = () => $('csvbox').classList.toggle('show');
 $('globalCfgBtn').onclick = openGlobalConfig;
 
-$('startAll').onclick = async () => { try { const r = await window.api.startAll(); toast(`Chạy song song ${r.started}/${r.total} máy.`); } catch (e) { toastErr(e); } renderAll(true); };
-$('stopAll').onclick = async () => { try { const r = await window.api.stopAll(); toast(`Đã dừng ${r.stopped} worker.`); } catch (e) { toastErr(e); } renderAll(true); };
+$('startAll').onclick = async () => { try { const r = await window.api.startAll(); toast(`Chạy ${r.started} máy${r.resumed ? `, tiếp tục ${r.resumed} máy tạm dừng` : ''}.`); } catch (e) { toastErr(e); } renderAll(true); };
+$('haltAll').onclick = () => haltAll();
+$('haltAllMenu').onclick = (e) => {
+  e.stopPropagation();
+  const m = $('haltAllMenuList');
+  const wasOpen = m.classList.contains('show');
+  closeMenus();
+  if (!wasOpen) m.classList.add('show');
+};
 $('loadAll').onclick = async () => { try { const r = await window.api.loadAllDevices(); toast(`Nạp ${r.total} thiết bị (thêm mới ${r.created}).`); } catch (e) { toastErr(e); } renderAll(); };
 $('addSubmit').onclick = async () => {
   const serial = $('addSerial').value.trim(); const name = $('addName').value.trim();

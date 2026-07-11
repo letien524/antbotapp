@@ -46,7 +46,11 @@ async function shutdown() {
 }
 
 process.on('message', (msg) => {
-  if (msg === 'stop' || (msg && msg.type === 'stop')) shutdown();
+  if (!msg) return;
+  const type = typeof msg === 'string' ? msg : msg.type;
+  if (type === 'stop') shutdown();
+  else if (type === 'pause') worker.pause({ immediate: msg.immediate !== false });
+  else if (type === 'resume') worker.resume();
 });
 process.on('SIGTERM', shutdown);
 

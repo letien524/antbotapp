@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   troopTables: () => ipcRenderer.invoke('devices:troopTables'),
   startWorker: (serial) => ipcRenderer.invoke('worker:start', serial),
   stopWorker: (serial) => ipcRenderer.invoke('worker:stop', serial),
+  pauseWorker: (serial, immediate) => ipcRenderer.invoke('worker:pause', { serial, immediate }),
+  resumeWorker: (serial) => ipcRenderer.invoke('worker:resume', serial),
 
   // Quan ly device
   addDevice: (serial, name) => ipcRenderer.invoke('device:add', { serial, name }),
@@ -23,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
   configMeta: () => ipcRenderer.invoke('config:meta'),
   getConfig: (serial) => ipcRenderer.invoke('config:get', serial),
   saveConfig: (serial, config, useOwnConfig, name) => ipcRenderer.invoke('config:save', { serial, config, useOwnConfig, name }),
+  saveConfigMany: (serials, config, useOwnConfig) => ipcRenderer.invoke('config:saveMany', { serials, config, useOwnConfig }),
   getGlobalConfig: () => ipcRenderer.invoke('config:getGlobal'),
   saveGlobalConfig: (config, applyToAll) => ipcRenderer.invoke('config:saveGlobal', { config, applyToAll }),
 
@@ -30,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   loadAllDevices: () => ipcRenderer.invoke('devices:loadAll'),
   startAll: () => ipcRenderer.invoke('workers:startAll'),
   stopAll: () => ipcRenderer.invoke('workers:stopAll'),
+  pauseAll: (immediate) => ipcRenderer.invoke('workers:pauseAll', immediate),
   importCsv: (text) => ipcRenderer.invoke('config:importCsv', text),
   exportCsv: () => ipcRenderer.invoke('config:exportCsv'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),

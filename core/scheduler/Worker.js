@@ -24,6 +24,7 @@ class Worker {
     // Task suy ra tu config (gather.enabled); co the ep bang `tasks`.
     this.taskNames = tasks || tasksFromConfig(cfg);
     this.running = false;
+    this.paused = false; // treo tam thoi (khong kill process); resume la chay tiep
     this.token = null; // token huy cho luot hien tai
     this.troopStatus = {}; // idx -> { task, type, level, at } : lan gui gan nhat cua tung doi
     this.lastQueue = null; // queue doc gan nhat (dung cho bang trang thai, khoi OCR lai)
@@ -58,12 +59,36 @@ class Worker {
     if (this._loopPromise) await this._loopPromise.catch(() => {});
   }
 
+  // TAM DUNG (khong kill process): worker treo lai, `resume()` la chay tiep tu lich hien tai.
+  //  - immediate=true : huy luot dang chay ngay (giong Stop nhung khong thoat) -> phan hoi nhanh.
+  //  - immediate=false: de luot hien tai xong roi moi treo (sach trang thai hon).
+  pause({ immediate = true } = {}) {
+    if (!this.running || this.paused) return;
+    this.paused = true;
+    if (immediate && this.token) this.token.cancel();
+    this.log.info(immediate
+      ? 'Worker TAM DUNG ngay (huy luot hien tai, giu tien trinh).'
+      : 'Worker se TAM DUNG sau khi xong luot hien tai.');
+  }
+
+  resume() {
+    if (!this.running || !this.paused) return;
+    this.paused = false;
+    this.log.info('Worker TIEP TUC.');
+  }
+
   async _loop() {
     // Lich chay rieng cho tung task (moc thoi gian chay ke tiep). Chay ngay lan dau.
     const nextRun = {};
     for (const name of this.taskNames) nextRun[name] = 0;
 
     while (this.running) {
+      // Dang TAM DUNG: nha token khoi device roi treo (poll ~0.8s de bat resume/stop).
+      if (this.paused) {
+        if (this.device.cancelToken === this.token) this.device.cancelToken = null;
+        await this._sleep(800);
+        continue;
+      }
       const cfg = (this.account && this.account.config) || {};
       // Token moi cho luot nay; gan vao device de moi thao tac deu kiem tra.
       this.token = new CancelToken();
@@ -92,7 +117,7 @@ class Worker {
             // Con o trong -> lam task. (Hien chi con collectResources.)
             let remainingFree = queue ? queue.free : null;
             for (const name of due) {
-              if (!this.running) break;
+              if (!this.running || this.paused) break;
               if (remainingFree != null && remainingFree <= 0) {
                 // Task uu tien da dung het o trong -> task nay cho vong sau.
                 nextRun[name] = Date.now() + pollMs;
@@ -123,7 +148,11 @@ class Worker {
 
       // Chi go token neu van la token cua minh (tranh clobber worker moi khi restart).
       if (this.device.cancelToken === this.token) this.device.cancelToken = null;
-      if (!this.running || cancelled) break;
+      if (!this.running) break;
+      // Luot bi huy vi TAM DUNG ngay -> KHONG thoat, quay lai treo o dau vong.
+      if (cancelled && !this.paused) break;
+      // Dang TAM DUNG -> ve thang nhanh treo (poll 800ms) thay vi ngu dai o duoi, de resume nhanh.
+      if (this.paused) continue;
 
       // Ngu toi moc chay gan nhat, nhung gioi han 30s de con re-check + phan hoi Stop.
       const soonest = Math.min(...this.taskNames.map((n) => nextRun[n]));

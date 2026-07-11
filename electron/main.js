@@ -49,6 +49,7 @@ function appUpdatedAt() {
 
 // Moi may = 1 CHILD PROCESS rieng (cach ly CPU khoi UI).
 const procs = new Map();       // serial -> child process
+const pausedSerials = new Set(); // serial dang TAM DUNG (process van song, chi treo vong lam viec)
 const statusStore = new Map(); // serial -> { troopStatus, lastQueue, at } (child bao ve)
 let win = null;
 
@@ -94,7 +95,7 @@ function startWorker(serial) {
       statusStore.set(serial, { troopStatus: msg.troopStatus || {}, lastQueue: msg.lastQueue || null, at: Date.now() });
     }
   });
-  child.on('exit', () => { if (procs.get(serial) === child) procs.delete(serial); statusStore.delete(serial); });
+  child.on('exit', () => { if (procs.get(serial) === child) procs.delete(serial); statusStore.delete(serial); pausedSerials.delete(serial); });
   child.on('error', (e) => {
     if (win && !win.isDestroyed()) win.webContents.send('log', { level: 'ERROR', scope: `proc:${serial}`, line: `Child loi: ${e.message}` });
   });
@@ -108,9 +109,27 @@ function stopWorker(serial) {
   if (!child) return;
   procs.delete(serial);
   statusStore.delete(serial);
+  pausedSerials.delete(serial);
   try { child.send({ type: 'stop' }); } catch (e) { try { child.kill(); } catch (e2) { /* ignore */ } }
   const t = setTimeout(() => { try { child.kill(); } catch (e) { /* ignore */ } }, 6000);
   child.once('exit', () => clearTimeout(t));
+}
+
+// TAM DUNG worker (process van song). immediate=true: huy luot hien tai ngay.
+function pauseWorker(serial, immediate = true) {
+  const child = procs.get(serial);
+  if (!child) return { paused: false };
+  try { child.send({ type: 'pause', immediate }); } catch (e) { /* ignore */ }
+  pausedSerials.add(serial);
+  return { paused: true };
+}
+
+function resumeWorker(serial) {
+  const child = procs.get(serial);
+  if (!child) return { paused: false };
+  try { child.send({ type: 'resume' }); } catch (e) { /* ignore */ }
+  pausedSerials.delete(serial);
+  return { paused: false };
 }
 
 // Dung roi cho child thoat han (dung khi restart de doi cu-moi khong tranh device).
@@ -120,6 +139,7 @@ function stopWorkerAndWait(serial) {
     if (!child) return resolve();
     procs.delete(serial);
     statusStore.delete(serial);
+    pausedSerials.delete(serial);
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
     child.once('exit', finish);
@@ -152,6 +172,7 @@ ipcMain.handle('devices:list', async () => {
       useOwnConfig: d.useOwnConfig,
       online: online.has(d.serial),
       running: procs.has(d.serial),
+      paused: pausedSerials.has(d.serial),
       size,
     });
   }
@@ -237,7 +258,7 @@ ipcMain.handle('devices:troopTables', async () => {
     });
     out.push({
       serial: dev.serial, name: dev.name,
-      online: online.has(dev.serial), running: procs.has(dev.serial), queue, troops,
+      online: online.has(dev.serial), running: procs.has(dev.serial), paused: pausedSerials.has(dev.serial), queue, troops,
     });
   }
   return out;
@@ -254,23 +275,40 @@ ipcMain.handle('worker:stop', async (_e, serial) => {
   return { running: false };
 });
 
+ipcMain.handle('worker:pause', async (_e, { serial, immediate }) => pauseWorker(serial, immediate !== false));
+
+ipcMain.handle('worker:resume', async (_e, serial) => resumeWorker(serial));
+
 ipcMain.handle('workers:startAll', async () => {
   const online = await onlineSerials();
   const devs = listDevices();
-  let started = 0;
+  let started = 0; let resumed = 0;
   for (const d of devs) {
+    // May dang TAM DUNG (van con tien trinh) -> tiep tuc, khong fork moi.
+    if (pausedSerials.has(d.serial)) { resumeWorker(d.serial); resumed += 1; continue; }
     if (!online.has(d.serial) || procs.has(d.serial)) continue;
     try { startWorker(d.serial); started += 1; } catch (e) { /* bo qua neu khong co task */ }
     // Stagger: cach nhau ~1.2s de cac child khong dong loat khoi tao nang cung luc.
     await new Promise((r) => setTimeout(r, 1200));
   }
-  return { started, total: devs.length };
+  return { started, resumed, total: devs.length };
 });
 
 ipcMain.handle('workers:stopAll', async () => {
   const serials = [...procs.keys()];
   for (const s of serials) stopWorker(s);
   return { stopped: serials.length };
+});
+
+// Tam dung TAT CA worker dang chay (bo qua may da tam dung). immediate=true: huy luot hien tai ngay.
+ipcMain.handle('workers:pauseAll', async (_e, immediate) => {
+  let paused = 0;
+  for (const s of [...procs.keys()]) {
+    if (pausedSerials.has(s)) continue; // da tam dung roi
+    pauseWorker(s, immediate !== false);
+    paused += 1;
+  }
+  return { paused };
 });
 
 // ---- Meta cho UI ----
@@ -310,6 +348,17 @@ ipcMain.handle('config:save', async (_e, { serial, config, useOwnConfig, name })
   saveDeviceConfig(serial, { config, useOwnConfig, name });
   const restarted = await restartIfRunning(serial);
   return { saved: true, restarted };
+});
+
+// Ap 1 cau hinh (dang cau hinh RIENG) cho NHIEU may da chon (bulk config).
+ipcMain.handle('config:saveMany', async (_e, { serials, config, useOwnConfig }) => {
+  let saved = 0; let restarted = 0;
+  for (const serial of serials || []) {
+    saveDeviceConfig(serial, { config, useOwnConfig: useOwnConfig !== false });
+    saved += 1;
+    if (await restartIfRunning(serial)) restarted += 1;
+  }
+  return { saved, restarted };
 });
 
 // ---- Import / Export CSV ----

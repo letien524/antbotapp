@@ -173,6 +173,45 @@
   .state-pill.run { background:var(--accent-soft); color:var(--accent); }
   .state-pill.idle { background:var(--s2); color:var(--muted); border:1px solid var(--border); }
   .state-pill.off { background:var(--s2); color:var(--idle); border:1px solid var(--border); }
+  .state-pill.paused { background:var(--info-soft); color:var(--info); }
+
+  /* Warn-style (pause) button */
+  .btn.warn { color:var(--accent); }
+  .btn.warn:hover { border-color:var(--accent); background:var(--accent-soft); }
+
+  /* Split button (halt + dropdown chon che do dung) */
+  .split { display:inline-flex; position:relative; }
+  .split > .btn:first-child { border-top-right-radius:0; border-bottom-right-radius:0; }
+  .split > .caret { border-top-left-radius:0; border-bottom-left-radius:0; border-left-color:rgba(0,0,0,.14); padding:8px 7px; flex:none; }
+  .split > .caret svg { width:13px; height:13px; }
+  .menu.haltmenu { top:calc(100% + 6px); bottom:auto; right:0; min-width:190px; }
+
+  /* Bulk action bar (list view) */
+  .bulkbar { display:none; align-items:center; gap:12px; background:var(--s1); border:1px solid var(--border-2);
+    border-radius:12px; padding:9px 14px; margin-bottom:14px; box-shadow:var(--shadow); position:sticky; top:0; z-index:6; flex-wrap:wrap; }
+  .bulkbar.show { display:flex; }
+  .bulkbar .selall { display:flex; align-items:center; gap:9px; font-size:12.5px; font-weight:600; color:var(--muted); }
+  .bulkbar .selcount { font-weight:700; color:var(--text); }
+  .bulkbar .bspacer { flex:1; }
+  .chkbox { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; margin:0; flex:none; }
+
+  /* List view rows */
+  .grid.list { display:flex; flex-direction:column; gap:7px; }
+  .lrow { display:grid; grid-template-columns:26px minmax(150px,1fr) 128px 118px auto; gap:14px; align-items:center;
+    background:var(--s1); border:1px solid var(--border); border-radius:11px; padding:10px 14px; box-shadow:var(--shadow);
+    transition:border-color .12s, background .12s; }
+  .lrow:hover { border-color:var(--border-2); }
+  .lrow.sel { border-color:var(--accent); background:var(--accent-soft); }
+  .lrow.offline { opacity:.7; }
+  .lrow.run { border-left:3px solid var(--accent); padding-left:11px; }
+  .lname { min-width:0; }
+  .lname .nn { display:flex; align-items:center; gap:7px; }
+  .lname .nn b { font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lname .lserial { font-family:var(--mono); font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lqueue { font-family:var(--mono); font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lqueue b { color:var(--text); font-weight:600; }
+  .lactions { display:flex; gap:7px; justify-content:flex-end; align-items:center; }
+  .lactions .btn { padding:7px 11px; }
 
   .queue { display:flex; align-items:center; gap:12px; padding:11px 13px; background:var(--s2); border:1px solid var(--border); border-radius:11px; }
   .queue .q-label { font-size:11px; color:var(--muted); font-weight:600; }
@@ -213,6 +252,9 @@
   .menu button.rm:hover { color:var(--crit); background:var(--crit-soft); }
   .menu button svg { width:15px; height:15px; color:var(--muted); }
   .menu button.rm:hover svg { color:var(--crit); }
+  .menu button.active { color:var(--accent); font-weight:700; background:var(--accent-soft); }
+  .menu button.active svg { color:var(--accent); }
+  .menu button .mk { margin-left:auto; color:var(--accent); font-weight:700; }
 
   /* Console */
   .console { position:fixed; left:76px; right:0; bottom:0; background:var(--s1); border-top:1px solid var(--border);
@@ -310,7 +352,11 @@
     <div class="fleet-pills" id="fleetPills"></div>
     <div class="top-actions">
       <button class="btn primary" id="startAll"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Chạy tất cả</button>
-      <button class="btn ghost danger" id="stopAll"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Dừng tất cả</button>
+      <div class="split" id="haltAllSplit">
+        <button class="btn ghost danger" id="haltAll"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Dừng tất cả</button>
+        <button class="btn ghost danger caret" id="haltAllMenu" title="Chọn thao tác dừng"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 9l6 6 6-6z"/></svg></button>
+        <div class="menu haltmenu" id="haltAllMenuList"></div>
+      </div>
       <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
@@ -341,6 +387,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
         <input id="searchInput" placeholder="Tìm theo tên hoặc serial…" />
       </div>
+      <div class="segment" id="viewSeg" title="Kiểu hiển thị">
+        <button data-view="grid" title="Dạng thẻ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+        <button data-view="list" title="Dạng danh sách"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:15px;height:15px"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></button>
+      </div>
       <button class="btn ghost" id="toggleAdd" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>Thêm máy</button>
       <button class="btn ghost" id="loadAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12a8 8 0 0 1 14-5M20 12a8 8 0 0 1-14 5"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Nạp thiết bị</button>
       <button class="btn ghost" id="globalCfgBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Cấu hình chung</button>
@@ -357,8 +407,8 @@
     </div>
 
     <div class="toolbox" id="csvbox">
-      <div class="hint">Cột: serial,name,gatherOn,gatherType,gatherLevel,pollSec — áp dụng cho mọi đội của máy.</div>
-      <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,0,6,60"></textarea>
+      <div class="hint">Cột: serial,name,<b>useOwnConfig</b>,gatherOn,<b>troops</b>,pollSec. <b>useOwnConfig</b>=1 riêng / 0 dùng chung. <b>troops</b> = từng đội ngăn cách <code>;</code>, mỗi đội là <code>type:level</code>; ô trống = đội tắt (vd <code>0:6;1:8;2:6</code> = mở 3 đội, đội 4 tắt). Vẫn đọc được định dạng cũ.</div>
+      <textarea id="csvText" rows="6" placeholder="localhost:5555,Acc1,1,1,0:6;0:6;0:8,60"></textarea>
       <div class="rowflex" style="margin-top:8px">
         <button class="btn primary" id="csvImport">Import CSV</button>
         <button class="btn ghost" id="csvExport">Export CSV</button>
@@ -367,6 +417,19 @@
         <button class="btn ghost" id="clearAllCache">Xoá cache tài nguyên (tất cả)</button>
       </div>
       <div class="pathnote" id="cfgPathNote"></div>
+    </div>
+
+    <div class="bulkbar" id="bulkBar">
+      <label class="selall"><input type="checkbox" class="chkbox" id="selAll" /><span id="selCount">Chọn máy để thao tác</span></label>
+      <div class="bspacer"></div>
+      <button class="btn primary" data-bulk="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Chạy</button>
+      <div class="split">
+        <button class="btn danger" data-bulk="halt" id="bulkHaltBtn"></button>
+        <button class="btn danger caret" data-bulk="haltmenu" title="Chọn thao tác dừng"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 9l6 6 6-6z"/></svg></button>
+        <div class="menu haltmenu" id="bulkHaltMenu"></div>
+      </div>
+      <button class="btn warn" data-bulk="resume"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Tiếp tục</button>
+      <button class="btn ghost" data-bulk="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Cấu hình</button>
     </div>
 
     <div class="grid" id="deviceGrid"></div>

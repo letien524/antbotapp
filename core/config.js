@@ -239,9 +239,14 @@ function tasksFromConfig(config) {
 }
 
 // ---- Import / Export CSV (cau hinh hang loat nhieu device) ----
-// Cot: serial,name,gatherOn,gatherType,gatherLevel,pollSec
-// gatherType/gatherLevel ap dung cho MOI doi cua device do. gatherOn: 1/0 (hoac true/false).
-const CSV_HEADER = 'serial,name,gatherOn,gatherType,gatherLevel,pollSec';
+// Cot: serial,name,useOwnConfig,gatherOn,troops,pollSec
+//   useOwnConfig = may dung cau hinh RIENG (1) hay theo cau hinh CHUNG (0).
+//   gatherOn = cong tac gather chung cua may (1/0). gatherOn=0 -> tat gather du troops co gi.
+//   troops = danh sach TUNG DOI, ngan cach ';', moi doi la "type:level".
+//           VI TRI = so thu tu doi. O trong = doi TAT. Toi da 4 doi (thua thi bo).
+//           Vd "0:6;1:8;2:6"  -> mo 3 doi (doi 4 tat). "0:6;;2:8" -> doi 1,3 bat, doi 2 tat.
+// Van DOC DUOC dinh dang cu (serial,name,gatherOn,gatherType,gatherLevel,pollSec) -> ap cho ca 4 doi.
+const CSV_HEADER = 'serial,name,useOwnConfig,gatherOn,troops,pollSec';
 
 function truthy(v) {
   return /^(1|true|yes|y|on|x)$/i.test(String(v || '').trim());
@@ -250,57 +255,130 @@ function toInt(v, def = 0) {
   const n = parseInt(String(v).trim(), 10);
   return Number.isFinite(n) ? n : def;
 }
-
-// Build config tu cac gia tri 1 dong (ap dung cung type/level cho moi doi).
-function configFromRow(r) {
-  return normalizeConfig({
-    gather: {
-      enabled: r.gatherOn,
-      troops: TROOPS.map(() => ({ type: r.gatherType, level: r.gatherLevel, enabled: true })),
-    },
-    pollSec: r.pollSec,
-  });
+function clampInt(v, lo, hi, def) {
+  const n = toInt(v, def);
+  return Math.min(hi, Math.max(lo, n));
 }
 
-// Parse CSV -> [{serial, name, config}]. Bo dong trong + dong header.
+// Boc 1 field theo RFC-4180: neu chua dau phay / dau nhay / xuong dong thi boc "..."
+// va nhan doi dau nhay ben trong. Nho vay TEN co dau phay khong lam vo dinh dang CSV.
+function csvEscape(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// Tach 1 dong CSV thanh mang field, TON TRONG field boc trong ngoac kep (co the chua dau phay).
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i += 1; } // "" -> mot dau nhay
+        else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') { inQ = true; }
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Parse cot "troops" ("type:level;type:level;...") -> mang 4 dong {type,level,enabled}.
+// VI TRI = doi. O trong -> doi TAT. Qua 4 doi thi bo. Import ĐÚNG so doi nhu file.
+function parseTroopsSpec(spec, maxSlot) {
+  const parts = String(spec || '').split(';');
+  const rows = [];
+  for (let i = 0; i < TROOPS.length; i += 1) {
+    const p = (parts[i] || '').trim();
+    if (!p) { rows.push({ type: 0, level: 1, enabled: false }); continue; } // o trong -> doi tat
+    const seg = p.split(':');
+    rows.push({
+      type: clampInt(seg[0], 0, maxSlot, 0),  // kep ve slot hop le (0..maxSlot)
+      level: clampInt(seg[1], 1, 15, 1),      // kep level 1..15
+      enabled: true,
+    });
+  }
+  return rows;
+}
+
+// Ma hoa 4 dong troop -> cot "troops". Doi tat = o trong; bo cac o trong o CUOI cho gon.
+function encodeTroopsSpec(troops) {
+  const parts = (troops || []).slice(0, TROOPS.length)
+    .map((t) => (t && t.enabled !== false ? `${t.type}:${t.level}` : ''));
+  while (parts.length && parts[parts.length - 1] === '') parts.pop();
+  return parts.join(';');
+}
+
+// Field "troops" hop le = o trong ('') hoac co chua ':' (type:level). Dung de nhan dang cot.
+function looksLikeTroops(s) { return s === '' || String(s).includes(':'); }
+
+// Parse CSV -> [{serial, name, useOwnConfig, config}]. Bo dong trong + dong header.
+// Field boc quote giu nguyen dau phay. Ho tro 3 dinh dang:
+//   v3 (chuan):  serial,name,useOwnConfig,gatherOn,troops,pollSec   (cot 5 = troops co ':' hoac rong)
+//   v2 (rut gon): serial,name,gatherOn,troops,pollSec               (5 cot, khong co useOwnConfig)
+//   v1 (cu):     serial,name,gatherOn,gatherType,gatherLevel,pollSec (ap cho ca 4 doi)
 function parseCsv(text) {
   const out = [];
+  const maxSlot = RESOURCE_TYPES.length - 1;
   for (const raw of String(text || '').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const c = line.split(',').map((x) => x.trim());
+    if (!raw.trim()) continue; // dong trong
+    const c = parseCsvLine(raw).map((x) => x.trim());
     if (/^serial$/i.test(c[0])) continue; // header
     const serial = c[0];
     if (!serial) continue;
+    const name = c[1] || serial;
+
+    let useOwnConfig = true; // mac dinh: import = cau hinh rieng (dinh dang cu khong co cot nay)
+    let gatherOn; let troops; let pollSec;
+
+    if (c.length >= 6 && looksLikeTroops(c[4])) {
+      // v3: serial,name,useOwnConfig,gatherOn,troops,pollSec
+      useOwnConfig = truthy(c[2]);
+      gatherOn = truthy(c[3]);
+      troops = parseTroopsSpec(c[4], maxSlot);
+      pollSec = Math.max(10, toInt(c[5], 60));
+    } else if (c.length >= 6) {
+      // v1 cu: serial,name,gatherOn,gatherType,gatherLevel,pollSec -> ap cho ca 4 doi.
+      gatherOn = truthy(c[2]);
+      const type = clampInt(c[3], 0, maxSlot, 0);
+      const level = clampInt(c[4], 1, 15, 1);
+      troops = TROOPS.map(() => ({ type, level, enabled: true }));
+      pollSec = Math.max(10, toInt(c[5], 60));
+    } else {
+      // v2 rut gon: serial,name,gatherOn,troops,pollSec
+      gatherOn = truthy(c[2]);
+      troops = parseTroopsSpec(c[3], maxSlot);
+      pollSec = Math.max(10, toInt(c[4], 60));
+    }
+
     out.push({
-      serial,
-      name: c[1] || serial,
-      config: configFromRow({
-        gatherOn: truthy(c[2]),
-        gatherType: toInt(c[3], 0),
-        gatherLevel: toInt(c[4], 1),
-        pollSec: toInt(c[5], 60),
-      }),
+      serial, name, useOwnConfig,
+      config: normalizeConfig({ gather: { enabled: gatherOn, troops }, pollSec }),
     });
   }
   return out;
 }
 
-// Import: them/cap nhat device + luu cau hinh RIENG (useOwnConfig=true). Tra ve serial da import.
+// Import: them/cap nhat device + luu cau hinh theo cot useOwnConfig cua tung dong. Tra ve serial da import.
 function importCsv(text) {
   const rows = parseCsv(text);
-  for (const r of rows) saveDeviceConfig(r.serial, { config: r.config, useOwnConfig: true, name: r.name });
+  for (const r of rows) saveDeviceConfig(r.serial, { config: r.config, useOwnConfig: r.useOwnConfig, name: r.name });
   return rows.map((r) => r.serial);
 }
 
-// Export tat ca device hien co ra CSV (config thuc thi, lay doi dau lam dai dien).
+// Export tat ca device hien co ra CSV — giu day du: rieng/chung + tung doi (cot troops) + poll.
 function exportCsv() {
   const lines = loadStore().devices.map((d) => {
-    const cfg = effectiveConfig(d.serial);
-    const g0 = cfg.gather.troops[0] || { type: 0, level: 1 };
+    const cfg = effectiveConfig(d.serial); // gia tri THUC THI (rieng neu bat, khong thi chung)
     return [
-      d.serial, d.name,
-      cfg.gather.enabled ? 1 : 0, g0.type, g0.level,
+      csvEscape(d.serial), csvEscape(d.name),
+      d.useOwnConfig ? 1 : 0,
+      cfg.gather.enabled ? 1 : 0,
+      csvEscape(encodeTroopsSpec(cfg.gather.troops)),
       cfg.pollSec,
     ].join(',');
   });
