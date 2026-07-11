@@ -195,6 +195,19 @@
   .bulkbar .bspacer { flex:1; }
   .chkbox { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; margin:0; flex:none; }
 
+  /* Group bar (chon nhom -> chon het may trong nhom) */
+  .groupbar { display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .groupbar.show { display:flex; }
+  .groupbar .glabel { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .groupbar .ghint { font-size:12px; color:var(--faint); }
+  .gchip { display:inline-flex; align-items:center; gap:7px; padding:6px 11px; border-radius:999px; font-size:12.5px; font-weight:600;
+    border:1px solid var(--border-2); background:var(--s2); color:var(--text); transition:background .12s, border-color .12s; }
+  .gchip:hover { background:var(--s3); }
+  .gchip.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  .gchip .gcount { font-family:var(--mono); font-size:11px; padding:1px 6px; border-radius:999px; background:var(--s1); color:var(--muted); }
+  .gchip.on .gcount { background:var(--accent); color:var(--accent-ink); }
+  .chip.grp { color:var(--info); border-color:var(--info-soft); background:var(--info-soft); }
+
   /* List view rows */
   .grid.list { display:flex; flex-direction:column; gap:7px; }
   .lrow { display:grid; grid-template-columns:26px minmax(150px,1fr) 128px 118px auto; gap:14px; align-items:center;
@@ -419,9 +432,12 @@
       <div class="pathnote" id="cfgPathNote"></div>
     </div>
 
+    <div class="groupbar" id="groupBar"></div>
+
     <div class="bulkbar" id="bulkBar">
       <label class="selall"><input type="checkbox" class="chkbox" id="selAll" /><span id="selCount">Chọn máy để thao tác</span></label>
       <div class="bspacer"></div>
+      <button class="btn ghost" data-bulk="group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h6l2 2h8v9H4z"/></svg>Nhóm</button>
       <button class="btn primary" data-bulk="start"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Chạy</button>
       <div class="split">
         <button class="btn danger" data-bulk="halt" id="bulkHaltBtn"></button>
@@ -492,6 +508,20 @@
 </aside>
 
 <div class="modal" id="capModal"><div class="box"><header><span id="capTitle">Ảnh màn hình</span><button class="icon-btn" id="capClose" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header><img id="capImg" alt="screenshot" /></div></div>
+
+<div class="modal" id="groupModal"><div class="box" style="width:min(380px,92vw)">
+  <header><span>Đổi nhóm</span><button class="icon-btn" id="groupModalClose" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div style="padding:16px; display:flex; flex-direction:column; gap:12px">
+    <div class="fnote" id="groupModalInfo"></div>
+    <input id="groupInput" type="text" placeholder="Tên nhóm (để trống = bỏ nhóm)" list="groupList" autocomplete="off" />
+    <datalist id="groupList"></datalist>
+    <div id="groupQuick" style="display:flex; gap:6px; flex-wrap:wrap"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px">
+      <button class="btn ghost" id="groupCancel">Huỷ</button>
+      <button class="btn primary" id="groupSave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12l5 5L20 7"/></svg>Lưu</button>
+    </div>
+  </div>
+</div></div>
 
 <div class="toasts" id="toasts"></div>
 

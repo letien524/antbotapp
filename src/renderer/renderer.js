@@ -297,6 +297,7 @@ function wireControls(el, d) {
 // Dispatcher: render theo kieu hien thi hien tai (card / list).
 function renderDevices() {
   gridEl.classList.toggle('list', viewMode === 'list');
+  renderGroupBar();
   updateBulkBar();
   const items = merged.filter(passFilter);
   if (viewMode === 'list') renderList(items); else renderCards(items);
@@ -317,7 +318,7 @@ function renderCards(items) {
       <div class="card-top">
         <div class="avatar">${isEmu ? AVATAR_EMU : AVATAR_PHONE}</div>
         <div class="card-id">
-          <div class="nm"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}</div>
+          <div class="nm"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}${d.group ? `<span class="chip grp" title="Nhóm">${esc(d.group)}</span>` : ''}</div>
           <div class="sub">${esc(d.serial)}${sizeTxt}</div>
         </div>
         ${statePillHtml(d)}
@@ -330,6 +331,7 @@ function renderCards(items) {
         <button class="icon-btn" data-act="menu" title="Thêm">${IC_DOTS}</button>
         <div class="menu overflow">
           <button data-act="rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L18 10l-4-4L4 16z"/></svg>Đổi tên</button>
+          <button data-act="group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h6l2 2h8v9H4z"/></svg>Đổi nhóm</button>
           <button data-act="capture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13" r="3"/><path d="M9 7l1.5-2h3L15 7"/></svg>Chụp màn hình</button>
           <button data-act="clearcache"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 9a8 8 0 0 0-14-3M4 15a8 8 0 0 0 14 3"/></svg>Xoá cache tài nguyên</button>
           <button class="rm" data-act="remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Xoá thiết bị</button>
@@ -359,7 +361,7 @@ function renderList(items) {
     row.innerHTML = `
       <input type="checkbox" class="chkbox rowchk" ${selected.has(d.serial) ? 'checked' : ''} />
       <div class="lname">
-        <div class="nn"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}</div>
+        <div class="nn"><b title="${esc(d.name)}">${esc(d.name)}</b>${d.useOwnConfig ? '<span class="chip own">Riêng</span>' : ''}${d.group ? `<span class="chip grp" title="Nhóm">${esc(d.group)}</span>` : ''}</div>
         <div class="lserial">${esc(d.serial)}</div>
       </div>
       ${statePillHtml(d)}
@@ -391,6 +393,7 @@ function wireCard(card, d) {
     if (!wasOpen) m.classList.add('show');
   });
   act('rename', (e) => { e.stopPropagation(); closeMenus(); startRename(card, d); });
+  act('group', (e) => { e.stopPropagation(); closeMenus(); openGroupModal([d.serial], d.group); });
   act('capture', async (e) => { e.stopPropagation(); closeMenus(); await doCapture(d); });
   act('clearcache', async (e) => {
     e.stopPropagation(); closeMenus();
@@ -592,6 +595,71 @@ function toggleSel(serial, on, rowEl) {
 function bySerial(serial) { return merged.find((d) => d.serial === serial); }
 function selectedDevices() { return [...selected].map(bySerial).filter(Boolean); }
 
+// ---- Nhom thiet bi ----
+// Map nhom -> danh sach serial (suy ra tu field group cua tung may, giu thu tu xuat hien).
+function listGroups() {
+  const m = new Map();
+  for (const d of merged) {
+    const g = (d.group || '').trim();
+    if (!g) continue;
+    if (!m.has(g)) m.set(g, []);
+    m.get(g).push(d.serial);
+  }
+  return m;
+}
+
+// Bam 1 nhom -> chon HET may trong nhom (toggle: neu da chon het thi bo chon het).
+function toggleGroupSelect(group) {
+  const serials = listGroups().get(group) || [];
+  const allSel = serials.length > 0 && serials.every((s) => selected.has(s));
+  for (const s of serials) { if (allSel) selected.delete(s); else selected.add(s); }
+  renderDevices();
+}
+
+// Gan/bo nhom cho danh sach may — dung MODAL trong app (Electron khong ho tro window.prompt).
+let groupTargets = [];
+function openGroupModal(serials, current) {
+  if (!serials || !serials.length) { toast('Chưa chọn máy nào.', true); return; }
+  groupTargets = serials;
+  const groups = [...listGroups().keys()];
+  $('groupModalInfo').textContent = `Áp cho ${serials.length} máy. Để trống = bỏ khỏi nhóm.`;
+  $('groupInput').value = current || '';
+  $('groupList').innerHTML = groups.map((g) => `<option value="${esc(g)}"></option>`).join('');
+  $('groupQuick').innerHTML = groups.map((g) => `<button class="gchip" data-g="${esc(g)}">${esc(g)}</button>`).join('')
+    + (groups.length ? '<button class="gchip" data-g="">— Bỏ nhóm —</button>' : '');
+  $('groupQuick').querySelectorAll('[data-g]').forEach((b) => { b.onclick = () => { $('groupInput').value = b.dataset.g; $('groupInput').focus(); }; });
+  $('groupModal').classList.add('show');
+  $('groupInput').focus(); $('groupInput').select();
+}
+async function saveGroup() {
+  const serials = groupTargets;
+  const name = $('groupInput').value.trim();
+  $('groupModal').classList.remove('show');
+  if (!serials.length) return;
+  try {
+    const r = await window.api.setGroup(serials, name);
+    toast(name ? `Đã gán ${r.updated} máy vào nhóm “${name}”.` : `Đã bỏ nhóm ${r.updated} máy.`);
+  } catch (e) { toastErr(e); }
+  renderAll(true);
+}
+
+// Render thanh nhom (chi o list view). Moi nhom la 1 chip; chip sang khi da chon het may trong nhom.
+function renderGroupBar() {
+  const bar = $('groupBar');
+  const show = viewMode === 'list';
+  bar.classList.toggle('show', show);
+  if (!show) { bar.innerHTML = ''; return; }
+  const groups = listGroups();
+  if (!groups.size) { bar.innerHTML = '<span class="ghint">Chưa có nhóm. Chọn máy rồi bấm <b>Nhóm</b> để tạo.</span>'; return; }
+  let html = '<span class="glabel">Nhóm</span>';
+  for (const [g, serials] of groups) {
+    const allSel = serials.every((s) => selected.has(s));
+    html += `<button class="gchip${allSel ? ' on' : ''}" data-group="${esc(g)}" title="Chọn tất cả máy trong nhóm">${esc(g)}<span class="gcount">${serials.length}</span></button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('[data-group]').forEach((b) => { b.onclick = () => toggleGroupSelect(b.dataset.group); });
+}
+
 function updateBulkBar() {
   const bar = $('bulkBar');
   const show = viewMode === 'list';
@@ -654,6 +722,14 @@ $('bulkBar').querySelector('[data-bulk="haltmenu"]').onclick = (e) => {
 $('bulkBar').querySelector('[data-bulk="resume"]').onclick = () =>
   bulkRun('Tiếp tục', (d) => window.api.resumeWorker(d.serial), (d) => d.running && d.paused);
 $('bulkBar').querySelector('[data-bulk="config"]').onclick = () => openBulkConfig();
+$('bulkBar').querySelector('[data-bulk="group"]').onclick = () => { const f = selectedDevices()[0]; openGroupModal([...selected], f && f.group); };
+
+// Modal nhom
+$('groupSave').onclick = saveGroup;
+$('groupCancel').onclick = () => $('groupModal').classList.remove('show');
+$('groupModalClose').onclick = () => $('groupModal').classList.remove('show');
+$('groupModal').onclick = (e) => { if (e.target === $('groupModal')) $('groupModal').classList.remove('show'); };
+$('groupInput').onkeydown = (e) => { if (e.key === 'Enter') saveGroup(); else if (e.key === 'Escape') $('groupModal').classList.remove('show'); };
 
 $('toggleAdd').onclick = () => $('addbox').classList.toggle('show');
 $('toggleCsv').onclick = () => $('csvbox').classList.toggle('show');

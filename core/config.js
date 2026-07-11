@@ -127,8 +127,20 @@ function saveGlobalConfig(config, opts = {}) {
 // ---- Quan ly DEVICE (them / doi ten / xoa / cau hinh rieng) ----
 function listDevices() {
   return loadStore().devices.map((d) => ({
-    serial: d.serial, name: d.name || d.serial, useOwnConfig: !!d.useOwnConfig,
+    serial: d.serial, name: d.name || d.serial, useOwnConfig: !!d.useOwnConfig, group: d.group || '',
   }));
+}
+// Gan (hoac bo) NHOM cho 1 hay nhieu may. group rong -> bo khoi nhom. Tra ve so may da doi.
+function setDeviceGroup(serials, group) {
+  const s = loadStore();
+  const set = new Set(Array.isArray(serials) ? serials : [serials]);
+  const g = String(group || '').trim();
+  let n = 0;
+  for (const dev of s.devices) {
+    if (set.has(dev.serial)) { dev.group = g; n += 1; }
+  }
+  saveStore(s);
+  return n;
 }
 function deviceForSerial(serial) {
   return loadStore().devices.find((d) => d.serial === serial) || null;
@@ -406,6 +418,7 @@ module.exports = {
   addDevice,
   renameDevice,
   removeDevice,
+  setDeviceGroup,
   saveDeviceConfig,
   effectiveConfig,
   // csv

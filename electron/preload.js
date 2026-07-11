@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
   // Quan ly device
   addDevice: (serial, name) => ipcRenderer.invoke('device:add', { serial, name }),
   renameDevice: (serial, name) => ipcRenderer.invoke('device:rename', { serial, name }),
+  setGroup: (serials, group) => ipcRenderer.invoke('device:setGroup', { serials, group }),
   removeDevice: (serial) => ipcRenderer.invoke('device:remove', serial),
   clearCache: (serial) => ipcRenderer.invoke('cache:clear', serial),
   clearAllCache: () => ipcRenderer.invoke('cache:clearAll'),

@@ -13,7 +13,7 @@ const { logEmitter } = require('../core/logger');
 const {
   accountForSerial, tasksFromConfig,
   RESOURCE_TYPES, TROOPS, CSV_HEADER,
-  listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, saveDeviceConfig,
+  listDevices, deviceForSerial, addDevice, renameDevice, removeDevice, setDeviceGroup, saveDeviceConfig,
   getGlobalConfig, saveGlobalConfig, effectiveConfig, normalizeConfig,
   importCsv, exportCsv, exportSettings, importSettings, CONFIG_PATH,
 } = require('../core/config');
@@ -170,6 +170,7 @@ ipcMain.handle('devices:list', async () => {
       serial: d.serial,
       name: d.name,
       useOwnConfig: d.useOwnConfig,
+      group: d.group || '',
       online: online.has(d.serial),
       running: procs.has(d.serial),
       paused: pausedSerials.has(d.serial),
@@ -189,6 +190,12 @@ ipcMain.handle('device:add', async (_e, { serial, name }) => {
 ipcMain.handle('device:rename', async (_e, { serial, name }) => {
   renameDevice(serial, name);
   return { ok: true };
+});
+
+// Gan/bo nhom cho 1 hay nhieu may (group rong = bo nhom).
+ipcMain.handle('device:setGroup', async (_e, { serials, group }) => {
+  const updated = setDeviceGroup(serials, group);
+  return { updated };
 });
 
 ipcMain.handle('device:remove', async (_e, serial) => {
